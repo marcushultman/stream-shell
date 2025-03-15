@@ -227,8 +227,11 @@ Assigning to `$PWD` is a way to change the current directory, for which there ex
 
 ### Process streams
 
-Any external process that runs dumps their output to a stream using their PID. Note that these streams
-doesn't use back-pressure, and hence snooping into that stream will only listen for values emitted after.
+Any external process that runs dumps their output to a stream using their PID.
+
+**Note:** that these streams doesn't use back-pressure, hence when consuming that stream, only new values will be emitted.
+
+This is useful in order to listen in to backgrounded streams. A PID is always created for the last command in a pipeline, even for builtins and closures.
 
 ```
 > count_sheep.st
@@ -238,7 +241,6 @@ doesn't use back-pressure, and hence snooping into that stream will only listen 
 104 sheeps
 ```
 
-You can listen in to backgounded streams using their PID too, as a PID is always created for the last command in a pipeline, even for builtins and closures.
 
 ## Strings
 
@@ -274,9 +276,12 @@ add_one $*
 
 ### Configuration
 
-The configuration script for interactive stream-shell `config.st` is loaded from `$XDG_CONFIG_HOME` if set, or `~/.config/stream-shell`. You can quickly open it in your default text editor (`$EDITOR`) by running the `config` command.
+The configuration script for interactive stream-shell (`config.st`) is loaded from `$XDG_CONFIG_HOME` if set, otherwise `~/.config/stream-shell/`. You can open it in your default text editor (`$EDITOR`) by running the `config` command.
 
-
-### Shell Prompt
+## Shell Prompt
 
 The `$PROMPT` environment variable can be set to customize the prompt of the shell. Similar to slicing consumption (`:[-1]`), it uses the last emitted value to print the prompt.
+
+### Oh My Posh
+
+TODO: support is planned
