@@ -9,6 +9,6 @@ git_override(
   remote = "https://github.com/hedronvision/bazel-compile-commands-extractor.git",
   commit = "4f28899228fb3ad0126897876f147ca15026151e",
   patches = [
-    "//patches:219.patch"
+    "//patches:bazel-compile-commands-extractor.patch",
   ],
 )
