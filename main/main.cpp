@@ -1,11 +1,10 @@
+#include "linenoise.h"
 #include <iostream>
-#include <string>
 
 int main(int argc, char **argv) {
-  std::cout << "> " << std::flush;
-  for (std::string buffer;;) {
-    std::cin >> buffer;
-    std::cout << buffer << std::endl << "> " << std::flush;
+  const char *line;
+  while ((line = linenoise("😀 \033[32mhello\x1b[0m> "))) {
+    std::cout << line << std::endl;
   }
   return 0;
 }

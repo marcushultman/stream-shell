@@ -4,6 +4,16 @@ bazel_dep(name = "rules_cc", version = "0.1.1")
 bazel_dep(name = "protobuf", version = "30.0")
 bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
 
+bazel_dep(name = "linenoise.cpp", version = "0.1.0")
+git_override(
+  module_name = "linenoise.cpp",
+  remote = "https://github.com/ericcurtin/linenoise.cpp.git",
+  commit = "46ccdf825b47a813d9a1f926043cf8ebd662e371",
+  patches = [
+    "//patches:linenoise-cpp.patch"
+  ],
+)
+
 git_override(
   module_name = "hedron_compile_commands",
   remote = "https://github.com/hedronvision/bazel-compile-commands-extractor.git",

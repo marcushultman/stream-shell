@@ -1,0 +1,27 @@
+diff --git BUILD BUILD
+new file mode 100644
+index 0000000..f7661bd
+--- /dev/null
++++ BUILD
+@@ -0,0 +1,10 @@
++cc_library(
++  name = "linenoise-cpp",
++  hdrs = [
++    "linenoise.h"
++  ],
++  srcs = [
++    "linenoise.cpp",
++  ],
++  visibility = ["//visibility:public"],
++)
+diff --git MODULE.bazel MODULE.bazel
+new file mode 100644
+index 0000000..62f443b
+--- /dev/null
++++ MODULE.bazel
+@@ -0,0 +1,5 @@
++"linenoise"
++
++module(name='linenoise.cpp', version = "0.1.0")
++
++bazel_dep(name = "rules_cc", version = "0.1.1")
