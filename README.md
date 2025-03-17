@@ -2,7 +2,7 @@
 
 Stream-shell (short name `stsh`), is a non-POSIX compliant shell, taking inspiration from shells that operates on structured data, such as Nushell, but stripping out unnecessary type abstractions and other stuff that just offers too many ways to do the same thing.
 
-Everything in stream-shell are streams, including the environment and other variables. Streams are lazily consumed with back-pressure, supporting both finite and infinite sequences. They are transformed by commands, such as executable binaries, builtins, and closures (lambdas), and chained together using the `|`-operator.
+Everything in stream-shell are streams, including the environment and other variables. Streams are lazily consumed with back-pressure, supporting both finite and infinite sequences. They are transformed by commands, such as executable binaries, builtins, and closures (lambdas), and chained together using the `|`-operator. Streams makes working with large amounts of data a breeze, as they do not require all data to be loaded upfront before it can start interacting with it.
 
 Streams are consumed by for example printing the values to stdout, or dumping them to a file, similar to more traditional shells. They can also be interpolated into other stream definitions. To re-use more complex stream definitions, you can assign the stream with its transforms to a variable, either on the command line or in a script - note that the upstream(s) and commands involved in the stream are not executed until the variable is part of another stream that is being consumed.
 
@@ -33,7 +33,7 @@ Other expressions are more obvious to represent a stream, such as a numeric rang
 3
 ```
 
-Streams can contain more complex values too, in the form of records. Records can be strongly typed by using a protobuf schema provided by the shell itself, plugins, or the user. Regardless if a schema exists or not, values are always convertible to the proto3 binary format as well as JSON, using the well-known wrappers from proto3.
+Streams can contain more complex values too, in the form of records. Records can be strongly typed by using a protobuf schema provided by the shell itself, plugins, or the user. Regardless if a schema exists or not, records are always convertible to the proto3 binary format as well as JSON, using the well-known wrappers from proto3.
 
 ```
 > user.proto.Person { name: "Albert" } { name: "Bernard" }
@@ -52,7 +52,7 @@ google.protobuf.BytesValue
 
 ### Expressions
 
-A stream expression is evaluated to a stream, and a value expression is evaluated to a value in a in a stream. Many of the value types can be used with arithmetic operations. An operation has higher precedence than stream value delimiters (e.g. whitespace, newline), even when there is additional whitespace between the expressions and operators. 
+A stream expression is evaluated to a stream, and a value expression is evaluated to a value in a in a stream. Many of the value types can be used with arithmetic operations. An operation has higher precedence than stream value delimiters (e.g. whitespace, newline), even when there is additional whitespace between the expressions and operators.
 
 ```
 > 1 + 2 3 "foo" + "bar" 10 % 3
@@ -60,6 +60,26 @@ A stream expression is evaluated to a stream, and a value expression is evaluate
 3
 "foobar"
 1
+```
+
+Parentheses can be used to isolate value expressions, and force anonymous records.
+```
+> 1 -2 + 3
+2
+```
+```
+> 1 (-2 + 3)
+1
+1
+```
+```
+> (1 -2)(+3)
+-1
+3
+```
+```
+> ({ name: "Bernard" })
+google.protobuf.Struct { name: "Bernard" }
 ```
 
 ### Sub-streams
@@ -98,10 +118,10 @@ Stream-shell contains a few builtin commands that can be used in streaming pipel
 
 ### Closures
 
-A closure is declared between brackets `{ [signature] => [expression(s)] }`, and consist of an optional signature that should match the value type of all values in the input stream, and expression(s) that shapes the output of the transformed stream. The closure is invoked with each value in the input stream. Like many other languages, the last expression in a closure is the return value, and true to stream-shell, it always returns a stream! The resulting stream is concat-mapped to the output of the closure.
+A closure is declared between brackets `{ [signature ->] [expression(s)] }`, and consist of an optional signature that should match the value type of all values in the input stream, and expression(s) that shapes the output of the transformed stream. The closure is invoked with each value in the input stream. Like many other languages, the last expression in a closure is the return value, and true to stream-shell, it always returns a stream! The resulting stream is concat-mapped to the output of the closure.
 
 ```
-> 1..2 | { i => i i * 2 }
+> 1..2 | { i -> i i * 2 }
 1
 2
 2
@@ -136,7 +156,7 @@ By default, streams are consumed using an interactive pull-mechanism on the comm
 All other ways to have a stream be displayed on the stdout automatically are using a trailing `:`. The most simple version prints the stream values using newline as delimiter. Note that a single value stream looks like a single value printout
 
 ```
-> "foo" | { s => s == "bar" } :
+> "foo" | { s -> s == "bar" } :
 false
 ```
 
@@ -231,18 +251,25 @@ Assigning to `$PWD` is a way to change the current directory, for which there ex
 
 ### Process streams
 
-Any external process that runs dumps their output to a stream using their PID.
+Any external process that runs dumps their output to a process stream with the same name as their PID (`$<PID>`). Process streams doesn't use back-pressure, hence when consuming it, only new values will be emitted. A process stream is always created for the stream pipeline itself, mirroring the stream output, with a generated name (`$<shell PID>-<UID>`).
 
-**Note:** that these streams doesn't use back-pressure, hence when consuming that stream, only new values will be emitted.
+These streams are useful in order to listen in to the progress of backgrounded streams, or concurrently running pipelines in a multiplex enironment.
 
-This is useful in order to listen in to backgrounded streams. A PID is always created for the last command in a pipeline, even for builtins and closures.
 
 ```
-> count_sheep.st
+> stsh ./count_sheep.st
 > sleep 100
-> $12345
+> $1234
 103 sheeps
 104 sheeps
+```
+
+```
+> iota
+> sleep 100
+> $1234-abcd
+103
+104
 ```
 
 
