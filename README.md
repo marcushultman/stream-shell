@@ -265,11 +265,11 @@ These streams are useful in order to listen in to the progress of backgrounded s
 ```
 
 ```
-> iota
+> iota | { i -> `$i sheeps` }
 > sleep 100
 > $1234-abcd
-103
-104
+103 sheeps
+104 sheeps
 ```
 
 
