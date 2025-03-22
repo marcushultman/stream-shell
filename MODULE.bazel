@@ -4,6 +4,7 @@ bazel_dep(name = "rules_cc", version = "0.1.1")
 bazel_dep(name = "range-v3", version = "0.12.0")
 bazel_dep(name = "protobuf", version = "30.0")
 bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
+bazel_dep(name = "boost.test", version = "1.87.0", dev_dependency = True)
 
 bazel_dep(name = "linenoise.cpp", version = "0.1.0")
 git_override(
