@@ -118,15 +118,48 @@ Stream-shell contains a few builtin commands that can be used in streaming pipel
 
 ### Closures
 
-A closure is declared between brackets `{ [signature ->] [expression(s)] }`, and consist of an optional signature that should match the value type of all values in the input stream, and expression(s) that shapes the output of the transformed stream. The closure is invoked with each value in the input stream. Like many other languages, the last expression in a closure is the return value, and true to stream-shell, it always returns a stream! The resulting stream is concat-mapped to the output of the closure.
+A closure is declared between brackets `{ [signature ->] [expression(s)] }`, and consist of an optional signature, and expression(s) that shapes the output of the transformed stream. The closure is invoked for each value in the input stream.
 
 ```
-> 1..2 | { i -> i i * 2 }
+> 1..2 | { add 1 }
+2
+3
+```
+
+The signature assigns the input to a local stream variable.
+
+```
+> 1..2 | { i -> $i $i * 2 }
 1
 2
 2
 3
 ```
+
+It can be useful to perform destructuring on records.
+
+```
+> { name: "Albert" } { name: "Bernard" } | { { name } -> $name | split | head 1 }
+A
+B
+```
+
+### Formatting
+
+The builtin command `to` transforms an input stream to a specific format.
+```
+> repeat "na" | tail 3 | to json
+["na", "na", "na"]
+```
+
+`to` operates on the whole input stream - to use per-value, wrap it in a closure.
+```
+> repeat "na" | tail 3 | { to json }
+"na"
+"na"
+"na"
+```
+
 
 ### Writing your own commands
 
@@ -151,14 +184,16 @@ By default, streams are consumed using an interactive pull-mechanism on the comm
 >
 ```
 
-### Formatting
+### Automatic
 
-All other ways to have a stream be displayed on the stdout automatically are using a trailing `:`. The most simple version prints the stream values using newline as delimiter. Note that a single value stream looks like a single value printout
+For finite streams, the traditional behavior of immediately printing to stdout can be useful and may be enabled using a trailing `:`. Note that a single value stream looks like a single value printout
 
 ```
 > "foo" | { s -> s == "bar" } :
 false
 ```
+
+#### Slicing printout
 
 While large streams are preferably sliced using the `head` ,`tail` and `slice` commands, you can also
 use a slicing printout. This is useful when the upstream is emitting values with delays. It'll only print out the given slice of stream values, replacing it in-place in the terminal after every new value has been emitted. The follwing example shows a single line with the current time, updated in realtime.
@@ -168,40 +203,21 @@ use a slicing printout. This is useful when the upstream is emitting values with
 2025-03-13T22:01:59+0000
 ```
 
-The type of the stream values will affect the output formatting. It can be forced by specifying a known format.
-
-```
-> repeat "na" | tail 3 :json
-["na", "na", "na"]
-```
-
-While writing to `/dev/null` works, you can skip the serialization completely by using the `:null` format. When `;` is used, `:null` consumption is implicitly used.
-```
-> 1..10000 :null
-```
-
 ### Write to file
 
-Just like some traditional shells, you can direct the output to a file instead of stdout, keeping the same syntax as bash. The format of the stream is inferred from the filename extension.
+Just like some traditional shells, you can direct the output to a file instead of stdout, keeping the same syntax as bash.
 
 ```
 > "hello" > lines.log
+> "append hello" >> lines.log
 ```
 
-The syntax for reading from a file is however not kept. Here we prefer to generate a stream from a file
+Note that the POSIX syntax for redirecting stdin from a file is not available in stream-shell. Instead you generate a stream from a file
 using the `open` command.
 
 ```
-> open lines.log
+> open lines.log :
 hello
-```
-
-You can use any filename you want and still select a format by providing it in addition to the filename.
-
-```
-> 1 2 3 > myfile json
-> open myfile
-[1, 2, 3]
 ```
 
 ### Background
