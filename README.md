@@ -126,22 +126,45 @@ A closure is declared between brackets `{ [signature ->] [expression(s)] }`, and
 3
 ```
 
-The signature assigns the input to a local stream variable.
+A signature assigns the input value to named variable instead of using it as input stream. This is useful when you need to pass the value as command argument.
 
 ```
-> 1..2 | { i -> $i $i * 2 }
+> 1..2 | { i -> i i * 2 }
 1
 2
 2
 3
 ```
 
-It can be useful to perform destructuring on records.
+The closure input variable can be a record, in which case you may use dot-notation to access fields.
 
 ```
-> { name: "Albert" } { name: "Bernard" } | { { name } -> $name | split | head 1 }
-A
-B
+> { name: "Albert" } { name: "Bernard" } | { person -> person.name }
+Albert
+Bernard
+```
+
+Lists are treated as streams, which means they're flattened into the output stream.
+
+```
+> { numbers: [1, 2] } { numbers: [3, 4] } | { e -> e.numbers }
+1
+2
+3
+4
+```
+
+You can transform list items just like any other stream.
+
+```
+> (
+    { name: "Albert", friends: [{ name: "Bernard" }, { name: "Cedric" }] } 
+    { name: "Derek" }
+  ) | { person -> person.name (person.friends | { get name } | prepend "- ") }
+Albert
+- Bernard
+- Cedric
+Derek
 ```
 
 ### Formatting
@@ -186,20 +209,20 @@ By default, streams are consumed using an interactive pull-mechanism on the comm
 
 ### Automatic
 
-For finite streams, the traditional behavior of immediately printing to stdout can be useful and may be enabled using a trailing `:`. Note that a single value stream looks like a single value printout
+For finite streams, the traditional behavior of printing to stdout line-by-line can be useful and may be enabled using a trailing `:`.
 
 ```
-> "foo" | { s -> s == "bar" } :
+> "foo" "bar" | { s -> s == "bar" } :
 false
+true
 ```
 
 #### Slicing printout
 
-While large streams are preferably sliced using the `head` ,`tail` and `slice` commands, you can also
-use a slicing printout. This is useful when the upstream is emitting values with delays. It'll only print out the given slice of stream values, replacing it in-place in the terminal after every new value has been emitted. The follwing example shows a single line with the current time, updated in realtime.
+You can specify a window size in order to have succeeding values replace already printed values in-place in the terminal. This is especially useful when the upstream is emitting values with a delay. The following example shows a single line with the current time updated in realtime.
 
 ```
-> now :[-1]
+> now : 1
 2025-03-13T22:01:59+0000
 ```
 
@@ -327,7 +350,7 @@ The configuration script for interactive stream-shell (`config.st`) is loaded fr
 
 ## Shell Prompt
 
-The `$PROMPT` environment variable can be set to customize the prompt of the shell. Similar to slicing consumption (`:[-1]`), it uses the last emitted value to print the prompt.
+The `$PROMPT` environment variable can be set to customize the prompt of the shell. Similar to slicing consumption (`:-1`), it uses the last emitted value to print the prompt.
 
 ### Oh My Posh
 
