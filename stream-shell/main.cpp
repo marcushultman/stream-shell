@@ -1,17 +1,21 @@
 #include <range/v3/all.hpp>
 #include "linenoise.h"
-#include "pipeline.h"
-#include "value.h"
+#include "stream_parser.h"
+#include "stream_printer.h"
+#include "tokenize.h"
+
+// env.h
+struct ProdEnv final : Env {
+  std::optional<StreamFactory> getEnv(StreamRef) const override { return {}; }
+  void setEnv(StreamRef, StreamFactory) override {}
+};
 
 int main(int argc, char **argv) {
+  ProdEnv env;
+  auto parser = makeStreamParser(env);
+
   for (const char *line; (line = linenoise("stream-shell v0.1 🚀> "));) {
-    for (auto &&pipeline : parsePipelines(line)) {
-      ranges::any_view<Value> stream = ranges::views::empty<Value>;
-      for (auto &&cmd : pipeline.cmds()) {
-        stream = cmd.run(stream);
-      }
-      pipeline.consume(stream);
-    }
+    printStream(parser->parse(tokenize(line) | ranges::to<std::vector>()));
   }
   return 0;
 }

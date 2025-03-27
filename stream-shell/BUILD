@@ -2,12 +2,13 @@ cc_library(
   name = "stream-shell-lib",
   hdrs = [
     "builtin.h",
-    "command.h",
-    "pipeline.h",
+    "stream_parser.h",
+    "stream_printer.h",
     "tokenize.h",
-    "value.h"
   ],
   srcs = [
+    "stream_parser.cpp",
+    "stream_printer.cpp",
     "tokenize.cpp",
   ],
   deps = [
@@ -15,7 +16,7 @@ cc_library(
     "@protobuf//:json_util",
     "@protobuf//:struct_cc_proto",
     "@range-v3//:range-v3",
-    "@linenoise.cpp//:linenoise-cpp"
+    "@linenoise.cpp//:linenoise-cpp",
   ],
   visibility = ["//stream-shell:__subpackages__"],
 )

@@ -1,10 +1,11 @@
 cc_test(
-  name = "tokenize_test",
+  name = "test",
   deps = [
     "@boost.test",
     "//stream-shell:stream-shell-lib"
   ],
   srcs = [
-    "tokenize_test.cpp"
+    "stream_parser_test.cpp"
+    "tokenize_test.cpp",
   ],
 )

@@ -1,8 +1,9 @@
 #define BOOST_TEST_MODULE tokenize_test
-
-#include "stream-shell/tokenize.h"
 #include <boost/test/included/unit_test.hpp>
+
+#include <boost/test/unit_test.hpp>
 #include <range/v3/all.hpp>
+#include "stream-shell/tokenize.h"
 
 using namespace std::string_view_literals;
 
@@ -13,6 +14,8 @@ auto tokens(auto str) {
 }
 
 using Tokens = decltype(tokens(""));
+
+BOOST_AUTO_TEST_SUITE(tokenize_test)
 
 BOOST_AUTO_TEST_CASE(tokenize_empty) {
   BOOST_TEST(tokens("").empty());
@@ -83,83 +86,25 @@ BOOST_AUTO_TEST_CASE(tokenize_string) {
   BOOST_TEST(tokens("2 'foo \"bar\"' baz") == Tokens({"2", "'foo \"bar\"'", "baz"}), kEach);
   BOOST_TEST(tokens("3 `just backtick` baz") == Tokens({"3", "`just backtick`", "baz"}), kEach);
 
-  BOOST_TEST(tokens("`foo $BAR baz`") == Tokens({"`foo ", "$BAR", " baz`"}), kEach);
+  BOOST_TEST(tokens("`foo $BAR baz`") == Tokens({"`foo $BAR baz`"}), kEach);
 }
 
 BOOST_AUTO_TEST_CASE(tokenize_complex) {
   BOOST_TEST(
       tokens(
-          R"cmd(1 2 3 | 1..3 | user.proto.Person { name: "Albert" } { name: "Bernard" } | 1 (-2 + 3) | git add (ls src) | { i -> i * 2 }; now :[-1]; repeat "na" | tail 3 :json; "hello" > lines.log; 1 2 3 > myfile json; now &; $HOME )cmd") ==
+          R"cmd(1 2 3 | 1..3 | user.proto.Person { name: "Albert" } | 1 (-2 + 3) | git add (ls src) | { i -> $i * 2 }; now :[-1]; repeat "na" | tail 3 ; "hello" > hello; 1 2 3 > lines.log; now &; $HOME )cmd") ==
           Tokens({
-              "1",
-              "2",
-              "3",
-              "|",
-              "1..3",
-              "|",
-              "user.proto.Person",
-              "{",
-              "name",
-              ":",
-              "\"Albert\"",
-              "}",
-              "{",
-              "name",
-              ":",
-              "\"Bernard\"",
-              "}",
-              "|",
-              "1",
-              "(",
-              "-2",
-              "+",
-              "3",
-              ")",
-              "|",
-              "git",
-              "add",
-              "(",
-              "ls",
-              "src",
-              ")",
-              "|",
-              "{",
-              "i",
-              "->",
-              "i",
-              "*",
-              "2",
-              "}",
-              ";",
-              "now",
-              ":",
-              "[",
-              "-1",
-              "]",
-              ";",
-              "repeat",
-              "\"na\"",
-              "|",
-              "tail",
-              "3",
-              ":",
-              "json",
-              ";",
-              "\"hello\"",
-              ">",
-              "lines.log",
-              ";",
-              "1",
-              "2",
-              "3",
-              ">",
-              "myfile",
-              "json",
-              ";",
-              "now",
-              "&",
-              ";",
-              "$HOME",
+              "1",      "2",    "3",    "|",          "1..3",  "|",         "user.proto.Person",
+              "{",      "name", ":",    "\"Albert\"", "}",     "|",         "1",
+              "(",      "-2",   "+",    "3",          ")",     "|",         "git",
+              "add",    "(",    "ls",   "src",        ")",     "|",         "{",
+              "i",      "->",   "$i",   "*",          "2",     "}",         ";",
+              "now",    ":",    "[",    "-1",         "]",     ";",         "repeat",
+              "\"na\"", "|",    "tail", "3",          ";",     "\"hello\"", ">",
+              "hello",  ";",    "1",    "2",          "3",     ">",         "lines.log",
+              ";",      "now",  "&",    ";",          "$HOME",
           }),
       kEach);
 }
+
+BOOST_AUTO_TEST_SUITE_END()

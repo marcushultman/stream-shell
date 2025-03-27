@@ -3,12 +3,15 @@
 #include <optional>
 #include <string_view>
 #include <range/v3/all.hpp>
-#include "value.h"
+#include "stream_parser.h"
 
-std::optional<ranges::any_view<Value>> findBuiltin(std::string_view cmd) {
+inline std::optional<Stream> findBuiltin(std::string_view cmd) {
   if (cmd.starts_with("iota")) {
-    return ranges::views::iota(1) |
-           ranges::views::transform([](auto i) { return Value("sheep " + std::to_string(i)); });
+    return ranges::views::iota(1) | ranges::views::transform([](auto i) {
+             google::protobuf::Value val;
+             val.set_string_value("🐑 " + std::to_string(i));
+             return val;
+           });
   }
   return {};
 }
