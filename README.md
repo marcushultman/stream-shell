@@ -33,7 +33,7 @@ Other expressions are more obvious to represent a stream, such as a numeric rang
 3
 ```
 
-Streams can contain more complex values too, in the form of records. Records can be strongly typed by using a protobuf schema provided by the shell itself, plugins, or the user. Regardless if a schema exists or not, records are always convertible to the proto3 binary format as well as JSON, using the well-known wrappers from proto3.
+Streams can contain more complex values too, in the form of records. Records can be strongly typed by using a protobuf schema provided by the shell itself, plugins, or the user. Regardless if a schema exists or not, records are always convertible to JSON or proto3 binary format.
 
 ```
 > user.proto.Person { name: "Albert" } { name: "Bernard" }
@@ -350,7 +350,7 @@ The configuration script for interactive stream-shell (`config.st`) is loaded fr
 
 ## Shell Prompt
 
-The `$PROMPT` environment variable can be set to customize the prompt of the shell. Similar to slicing consumption (`:-1`), it uses the last emitted value to print the prompt.
+The `$PROMPT` environment variable can be set to customize the prompt of the shell. Similar to slicing consumption (`:1`), it uses the last emitted value to print the prompt.
 
 ### Oh My Posh
 
