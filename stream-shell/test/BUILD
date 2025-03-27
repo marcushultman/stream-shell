@@ -5,7 +5,7 @@ cc_test(
     "//stream-shell:stream-shell-lib"
   ],
   srcs = [
-    "stream_parser_test.cpp"
+    "stream_parser_test.cpp",
     "tokenize_test.cpp",
   ],
 )
