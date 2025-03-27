@@ -34,13 +34,6 @@ inline auto lookupType(std::string_view name) {
 
 #endif
 
-const Word *checkCommand(const Closure &closure, const std::vector<Operand> &operands) {
-  if (auto *word = std::get_if<Word>(operands.empty() ? nullptr : &operands.front())) {
-    return closure.vars.contains(*word) ? nullptr : word;
-  }
-  return nullptr;
-}
-
 enum class InputMode {
   kStream,
   kValue,
@@ -85,26 +78,29 @@ struct CommandBuilder {
             operands = std::move(operands)] {
       auto build_stream = [&](auto &&input) -> Stream {
         return std::move(input) |
-               ranges::views::for_each(
-                   [closure, operands](const auto &input) -> ranges::any_view<Operand> {
-                     // assume StreamExpression, ignoring input
+               ranges::views::for_each([&env, closure, operands](const auto &input) -> Stream {
+                 if (operands.empty()) {
+                   return {};
+                 }
 
-                     if (auto cmd = checkCommand(closure, operands)) {
-                       if (auto builtin = findBuiltin(cmd->value)) {
-                         return ranges::views::single(*builtin);
-                       }
+                 if (auto cmd = frontCommand(closure, operands)) {
+                   if (auto stream = findBuiltin(*cmd)) {
+                     return *stream;
+                   }
 
-                       for (auto [i, o] : ranges::views::enumerate(operands)) {
-                         auto *w = std::get_if<Word>(&o);
-                         std::cerr << (i ? " " : "") << (w ? w->value : "?");
-                       }
-                       std::cerr << "\n";
-                       return {};
-                     }
-                     return operands;
-                   }) |
-               ranges::views::for_each([&env, closure](const auto &value) {
-                 return std::visit(ToStream(env, closure), value);
+                   for (auto [i, o] : ranges::views::enumerate(operands)) {
+                     auto *w = std::get_if<Word>(&o);
+                     std::cerr << (i ? " " : "") << (w ? w->value : "?");
+                   }
+
+                   std::cerr << "\n";
+                   return {};
+                 }
+
+                 // Stream expression (ignore input)
+                 return operands | ranges::views::for_each([&env, closure](const auto &value) {
+                          return std::visit(ToStream(env, closure), value);
+                        });
                });
       };
       return input_mode == InputMode::kValue ? build_stream(Stream(input))
@@ -115,6 +111,13 @@ struct CommandBuilder {
   std::expected<Stream, std::string> build(Env &env) && { return std::move(*this).factory(env)(); }
 
  private:
+  static const Word *frontCommand(const Closure &closure, const std::vector<Operand> &operands) {
+    if (auto *word = std::get_if<Word>(&operands.front())) {
+      return closure.vars.contains(*word) ? nullptr : word;
+    }
+    return nullptr;
+  }
+
   // void run() {
   //   if (!words.empty()) {
   //     // todo: external command
