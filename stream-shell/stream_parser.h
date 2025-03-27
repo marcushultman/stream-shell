@@ -1,7 +1,6 @@
 #pragma once
 
 #include <expected>
-#include <string>
 #include <string_view>
 #include <vector>
 #include <google/protobuf/any.pb.h>
@@ -13,7 +12,30 @@ using Value = std::variant<google::protobuf::BytesValue,  // Bytes
                            google::protobuf::Value,       // Primitives & JSON
                            google::protobuf::Any>;        // Strong types
 
-using Stream = ranges::any_view<Value>;
+enum class Error : int {
+  kSuccess = 0,
+  kUnknown = 1,
+  kParseError,
+  kJsonError,
+
+  kCoalesceSkip,
+
+  kMissingOperand,
+  kMissingVariable,
+
+  kInvalidNumberOp,
+  kInvalidBoolOp,
+  kInvalidStringOp,
+  kInvalidOp,
+
+  kInvalidClosureSignature,
+  kInvalidStreamRef,
+};
+
+template <typename T>
+using Result = std::expected<T, Error>;
+
+using Stream = ranges::any_view<Result<Value>>;
 using StreamFactory = std::function<Stream()>;
 
 struct StreamRef {
@@ -40,8 +62,7 @@ using PrintableStream = std::pair<Stream, Print::Mode>;
 
 struct StreamParser {
   virtual ~StreamParser() = default;
-  virtual auto parse(std::vector<std::string_view> &&)
-      -> std::expected<PrintableStream, std::string> = 0;
+  virtual auto parse(std::vector<std::string_view> &&) -> PrintableStream = 0;
 };
 
 /**

@@ -3,9 +3,9 @@
 #include <optional>
 #include <string_view>
 #include <range/v3/all.hpp>
-#include "operand.h"
-#include "stream_parser.h"
+#include "closure.h"
 
+// todo: pass args here and return Operand (since builtins may fail)
 inline std::optional<Stream> findBuiltin(const Word &cmd) {
   if (cmd.value.starts_with("iota")) {
     return ranges::views::iota(1) | ranges::views::transform([](auto i) {

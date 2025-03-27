@@ -2,8 +2,15 @@
 
 #include <map>
 #include <memory>
-#include "operand.h"
+#include <string_view>
 #include "stream_parser.h"
+
+struct Word {
+  Word(const std::string &value) : value{value} {}
+  Word(std::string_view value) : value{value} {}
+  std::string_view value;
+  std::strong_ordering operator<=>(const Word &) const = default;
+};
 
 struct Closure {
   std::map<Word, std::shared_ptr<Value>, std::less<>> vars;

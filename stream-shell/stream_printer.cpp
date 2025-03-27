@@ -65,6 +65,12 @@ struct REPLPrinter final : Printer {
 struct ToJSON {
   auto operator()(const auto &value) {
     scratch.clear();
+    if constexpr (std::is_same_v<std::decay_t<decltype(value)>, google::protobuf::Value>) {
+      if (value.has_string_value()) {
+        scratch = value.string_value();
+        return absl::Status();
+      }
+    }
     return google::protobuf::util::MessageToJsonString(value, &scratch);
   }
   std::string scratch;
@@ -80,8 +86,11 @@ auto printStream(Stream &&stream, Print::Mode mode) -> std::expected<void, std::
     printer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full);
   }
 
-  for (auto &&[i, value] : ranges::views::enumerate(std::move(stream))) {
-    if (auto status = std::visit(to_json, value); !status.ok()) {
+  for (auto &&[i, result] : ranges::views::enumerate(std::move(stream))) {
+    if (!result) {
+      return std::unexpected(std::format("Failed with code: {}", int(result.error())));
+    }
+    if (auto status = std::visit(to_json, *result); !status.ok()) {
       return std::unexpected(std::string(status.message()));
     } else if (!printer->print(i, to_json.scratch)) {
       break;
@@ -92,12 +101,8 @@ auto printStream(Stream &&stream, Print::Mode mode) -> std::expected<void, std::
 
 }  // namespace
 
-void printStream(std::expected<PrintableStream, std::string> &&stream) {
-  auto status = stream.and_then([&](auto &&printable_stream) {
-    auto &[stream, mode] = printable_stream;
-    return printStream(std::move(stream), mode);
-  });
-  if (!status) {
+void printStream(PrintableStream &&stream) {
+  if (auto status = printStream(std::move(stream.first), stream.second); !status.has_value()) {
     std::cerr << status.error() << std::endl;
   }
 }

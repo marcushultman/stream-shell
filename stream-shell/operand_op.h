@@ -1,84 +1,137 @@
 #pragma once
 
-#include <expected>
-#include <functional>
 #include <type_traits>
 #include "closure.h"
 #include "operand.h"
 #include "stream_parser.h"
 #include "value_op.h"
 
+inline bool isTruthy(const google::protobuf::BytesValue &bytes) {
+  return ranges::any_of(bytes.value(), std::identity());
+}
+inline bool isTruthy(const google::protobuf::Value &value) {
+  if (value.has_null_value()) {
+    return false;
+  } else if (value.has_number_value()) {
+    return value.number_value() > 0;
+  } else if (value.has_string_value()) {
+    return !value.string_value().empty();
+  } else if (value.has_bool_value()) {
+    return value.bool_value();
+  } else if (value.has_struct_value()) {
+    return true;
+  } else if (value.has_list_value()) {
+    return !value.list_value().values().empty();
+  }
+  return false;
+}
+inline bool isTruthy(const google::protobuf::Any &value) {
+  return true;
+}
+
 template <typename T>
-concept NonWord = !std::is_same_v<std::decay_t<T>, Word>;
+concept IsValue = InVariant<Value, T>;
 
 struct OperandOp {
-  template <typename T>
-  using Result = std::expected<T, std::string>;
+  OperandOp(std::string_view op) : op{op} {}
 
-  OperandOp(const Env &env, const Closure &closure, std::string_view op)
-      : env{env}, closure{closure}, op{op} {}
+  // FROM VALUE_OP
 
-  static auto unary(const Env &env, auto op, const auto &val) -> Result<Value> {
-    if (op == "-") return ValueOp<std::negate<>>(env)(val);
-    if (op == "!") return ValueOp<std::logical_not<>>(env)(val);
-    assert(0);
-  }
+  // Operand operator()(const Stream &stream) {
+  //   if constexpr (OpResult<Op, bool, bool>::value) {
+  //     google::protobuf::Value result;
+  //     result.set_bool_value(Op()(ranges::distance(Stream(stream))));
+  //     return ranges::views::single(result);
+  //   }
+  //   return std::unexpected(Error::kInvalidOp);
+  // }
 
-  static auto binary(const Env &env, auto op, const auto &lhs, const auto &rhs) -> Result<Value> {
-    if (op == "||") return ValueOp<std::logical_or<>>(env)(lhs, rhs);
-    if (op == "&&") return ValueOp<std::logical_and<>>(env)(lhs, rhs);
-    if (op == "==") return ValueOp<std::equal_to<>>(env)(lhs, rhs);
-    if (op == "!=") return ValueOp<std::not_equal_to<>>(env)(lhs, rhs);
-    if (op == "<") return ValueOp<std::less<>>(env)(lhs, rhs);
-    if (op == "<=") return ValueOp<std::less_equal<>>(env)(lhs, rhs);
-    if (op == ">") return ValueOp<std::greater<>>(env)(lhs, rhs);
-    if (op == ">=") return ValueOp<std::greater_equal<>>(env)(lhs, rhs);
-    if (op == "+") return ValueOp<std::plus<>>(env)(lhs, rhs);
-    if (op == "-") return ValueOp<std::minus<>>(env)(lhs, rhs);
-    if (op == "*") return ValueOp<std::multiplies<>>(env)(lhs, rhs);
-    if (op == "/") return ValueOp<std::divides<>>(env)(lhs, rhs);
-    if (op == "%") return ValueOp<std::modulus<>>(env)(lhs, rhs);
-    assert(0);
-  }
+  // Operand operator()(const StreamRef &ref) {
+  //   if constexpr (OpResult<Op, bool, bool>::value) {
+  //     google::protobuf::Value result;
+  //     result.set_bool_value(Op()(_env.getEnv(ref)));
+  //     return ranges::views::single(result);
+  //   }
+  //   return std::unexpected(Error::kInvalidOp);
+  // }
 
-  auto varOp(const Word &var, auto &&transform) -> Result<Operand> {
-    if (auto it = closure.vars.find(var); it != closure.vars.end()) {
-      return ranges::views::single(ranges::ref(*it->second)) |
-             ranges::views::transform([transform = std::move(transform)](const Value &value) {
-               return std::visit(
-                   [&](auto &value) -> Value {
-                     if (auto result = transform(value)) {
-                       return *result;
-                     }
-                     google::protobuf::Value null;
-                     null.set_null_value(google::protobuf::NULL_VALUE);
-                     return null;
-                   },
-                   value);
-             });
+  //
+
+  // todo: implement ops for Stream, StreamRef, (binary) Word
+
+  auto operator()(const IsValue auto &...v) const -> Operand {
+    if (auto result = eval(v...)) {
+      return std::visit([](auto value) -> Operand { return value; }, *result);
+    } else {
+      return [result](auto &) { return result; };
     }
-    return std::unexpected(std::format("'{}' is not a variable", var.value));
+  }
+  auto operator()(const auto &...v) const -> Operand { return eval(v...); }
+
+ private:
+  auto eval(const IsValue auto &v) const -> Result<Value> {
+    if (op == "+") return ValueOp<std::identity>()(v);
+    if (op == "-") return ValueOp<std::negate<>>()(v);
+    if (op == "!") return ValueOp<std::logical_not<>>()(v);
+    return std::unexpected(Error::kInvalidOp);
+  }
+  auto eval(const ClosureValue &v) const -> ClosureValue {
+    return [op = *this, v](const Closure &closure) {
+      return v(closure).and_then(
+          [&](Value v) { return std::visit([&](auto v) { return op.eval(v); }, v); });
+    };
   }
 
-  // todo: implement ops for Stream, StreamRef, Word
+  auto eval(const IsValue auto &lhs, const IsValue auto &rhs) const -> Result<Value> {
+    if (op == "||") return ValueOp<std::logical_or<>>()(lhs, rhs);
+    if (op == "&&") return ValueOp<std::logical_and<>>()(lhs, rhs);
+    if (op == "==") return ValueOp<std::equal_to<>>()(lhs, rhs);
+    if (op == "!=") return ValueOp<std::not_equal_to<>>()(lhs, rhs);
+    if (op == "<") return ValueOp<std::less<>>()(lhs, rhs);
+    if (op == "<=") return ValueOp<std::less_equal<>>()(lhs, rhs);
+    if (op == ">") return ValueOp<std::greater<>>()(lhs, rhs);
+    if (op == ">=") return ValueOp<std::greater_equal<>>()(lhs, rhs);
+    if (op == "+") return ValueOp<std::plus<>>()(lhs, rhs);
+    if (op == "-") return ValueOp<std::minus<>>()(lhs, rhs);
+    if (op == "*") return ValueOp<std::multiplies<>>()(lhs, rhs);
+    if (op == "/") return ValueOp<std::divides<>>()(lhs, rhs);
+    if (op == "%") return ValueOp<std::modulus<>>()(lhs, rhs);
+    if (op == "?") {
+      return isTruthy(lhs) ? Result<Value>(rhs) : std::unexpected(Error::kCoalesceSkip);
+    }
+    if (op == "?:") return lhs;
+    return std::unexpected(Error::kInvalidOp);
+  }
+  auto eval(const ClosureValue &lhs, const IsValue auto &rhs) const -> ClosureValue {
+    return [lhs, op = *this, rhs](const Closure &closure) {
+      return lhs(closure)
+          .and_then([&](Value lhs) {
+            return std::visit([&](auto lhs) { return op.eval(lhs, rhs); }, lhs);
+          })
+          .or_else([&](Error err) -> Result<Value> {
+            if (op.op == "?:" && err == Error::kCoalesceSkip) {
+              return rhs;
+            }
+            return std::unexpected(err);
+          });
+    };
+  }
+  auto eval(const IsValue auto &lhs, const ClosureValue &rhs) const -> ClosureValue {
+    return [lhs, op = *this, rhs](const Closure &closure) {
+      return rhs(closure).and_then(
+          [&](Value rhs) { return std::visit([&](auto rhs) { return op.eval(lhs, rhs); }, rhs); });
+    };
+  }
+  auto eval(const ClosureValue &lhs, const ClosureValue &rhs) const -> ClosureValue {
+    return [lhs, op = *this, rhs](const Closure &closure) {
+      return rhs(closure).and_then([&](Value rhs) {
+        return std::visit([&](auto rhs) { return op.eval(lhs, rhs)(closure); }, rhs);
+      });
+    };
+  }
+  auto eval(const auto &...) const -> ClosureValue {
+    return [](auto &) { return std::unexpected(Error::kInvalidOp); };
+  }
 
-  auto operator()(const Word &v) -> Result<Operand> {
-    return varOp(v, [&env = env, op = op](auto &val) { return unary(env, op, val); });
-  }
-  auto operator()(const NonWord auto &lhs, const Word &rhs) -> Result<Operand> {
-    return varOp(rhs, [&env = env, op = op, lhs](auto &rhs) { return binary(env, op, lhs, rhs); });
-  }
-  auto operator()(const Word &lhs, const NonWord auto &rhs) -> Result<Operand> {
-    return varOp(lhs, [&env = env, op = op, rhs](auto &lhs) { return binary(env, op, lhs, rhs); });
-  }
-  auto operator()(const auto &v) -> Result<Operand> {
-    return unary(env, op, v).transform([](auto &&v) { return toOperand(std::move(v)); });
-  }
-  auto operator()(const auto &...v) -> Result<Operand> {
-    return binary(env, op, v...).transform([](auto &&v) { return toOperand(std::move(v)); });
-  }
-
-  const Env &env;
-  const Closure &closure;
   std::string_view op;
 };

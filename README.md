@@ -38,7 +38,7 @@ Streams can contain more complex values too, in the form of records. Records can
 ```
 > user.proto.Person { name: "Albert" } { name: "Bernard" }
 user.proto.Person { name: "Albert" }
-google.protobuf.Struct { name: "Bernard" }
+{ name: "Bernard" }
 ```
 
 Fun fact: the values used in the above streams may look like primitives, but are in reality represented by proto3 value wrappers. This is opaque to both transformation and consumption of the values, but it forces a uniform way to model types of streams.
@@ -78,8 +78,8 @@ Parentheses can be used to isolate value expressions, and force anonymous record
 3
 ```
 ```
-> ({ name: "Bernard" })
-google.protobuf.Struct { name: "Bernard" }
+> 1 | ({ name: "Bernard" })
+{ name: "Bernard" }
 ```
 
 ### Sub-streams
@@ -133,7 +133,7 @@ A signature assigns the input value to named variable instead of using it as inp
 1
 2
 2
-3
+4
 ```
 
 The closure input variable can be a record, in which case you may use dot-notation to access fields.

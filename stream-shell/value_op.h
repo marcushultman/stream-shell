@@ -2,28 +2,33 @@
 
 #include "stream_parser.h"
 
-#include <expected>
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
-#include <range/v3/all.hpp>
 
 template <typename Op, typename T, typename R, typename = void>
 struct OpResult : std::false_type {};
 
 template <typename Op, typename T, typename R>
-struct OpResult<Op, T, R, std::enable_if_t<std::is_same_v<std::invoke_result_t<Op, T, T>, R>>>
+struct OpResult<Op,
+                T,
+                R,
+                std::enable_if_t<std::is_same_v<std::decay_t<std::invoke_result_t<Op, T, T>>, R>>>
     : std::true_type {};
 
 template <typename Op, typename T, typename R>
-struct OpResult<Op, T, R, std::enable_if_t<std::is_same_v<std::invoke_result_t<Op, T>, R>>>
+struct OpResult<Op,
+                T,
+                R,
+                std::enable_if_t<std::is_same_v<std::decay_t<std::invoke_result_t<Op, T>>, R>>>
     : std::true_type {};
 
+/**
+ * Given a template functor, try performing the operation on 1 to 2 primitives.
+ */
 template <typename Op>
 struct ValueOp {
-  using Result = std::expected<Value, std::string>;
-
-  ValueOp(const Env &env) : _env{env} {}
+  using Result = Result<google::protobuf::Value>;
 
   Result operator()(const google::protobuf::Value &val) {
     google::protobuf::Value result;
@@ -35,7 +40,7 @@ struct ValueOp {
         result.set_bool_value(Op()(val.number_value()));
 
       } else {
-        return std::unexpected("can't apply op to numbers");
+        return std::unexpected(Error::kInvalidNumberOp);
       }
 
     } else if (val.has_bool_value()) {
@@ -43,7 +48,7 @@ struct ValueOp {
         result.set_bool_value(Op()(val.bool_value()));
 
       } else {
-        return std::unexpected("can't apply op to bool");
+        return std::unexpected(Error::kInvalidBoolOp);
       }
 
     } else if (val.has_string_value()) {
@@ -51,30 +56,13 @@ struct ValueOp {
         result.set_bool_value(Op()(!val.string_value().empty()));
 
       } else {
-        return std::unexpected("can't apply op to bool");
+        return std::unexpected(Error::kInvalidStringOp);
       }
 
     } else {
-      return std::unexpected("can't apply op");
+      return std::unexpected(Error::kInvalidOp);
     }
     return result;
-  }
-
-  Result operator()(const Stream &stream) {
-    if constexpr (OpResult<Op, bool, bool>::value) {
-      google::protobuf::Value result;
-      result.set_bool_value(Op()(ranges::distance(Stream(stream))));
-      return result;
-    }
-    return std::unexpected("Operator expected Value");
-  }
-  Result operator()(const StreamRef &ref) {
-    if constexpr (OpResult<Op, bool, bool>::value) {
-      google::protobuf::Value result;
-      result.set_bool_value(Op()(_env.getEnv(ref)));
-      return result;
-    }
-    return std::unexpected("Operator expected Value");
   }
 
   Result operator()(const google::protobuf::Value &lhs, const google::protobuf::Value &rhs) {
@@ -90,7 +78,7 @@ struct ValueOp {
         result.set_number_value(Op()(int64_t(lhs.number_value()), int64_t(rhs.number_value())));
 
       } else {
-        return std::unexpected("can't apply op to numbers");
+        return std::unexpected(Error::kInvalidNumberOp);
       }
 
     } else if (lhs.has_bool_value() && rhs.has_bool_value()) {
@@ -98,7 +86,7 @@ struct ValueOp {
         result.set_bool_value(Op()(lhs.bool_value(), rhs.bool_value()));
 
       } else {
-        return std::unexpected("can't apply op to bools");
+        return std::unexpected(Error::kInvalidBoolOp);
       }
 
     } else if (lhs.has_string_value() && rhs.has_string_value()) {
@@ -109,15 +97,14 @@ struct ValueOp {
         result.set_bool_value(Op()(lhs.string_value(), rhs.string_value()));
 
       } else {
-        return std::unexpected("can't apply op to strings");
+        return std::unexpected(Error::kInvalidStringOp);
       }
 
     } else {
-      return std::unexpected("can't apply op");
+      return std::unexpected(Error::kInvalidOp);
     }
     return result;
   }
-  Result operator()(const auto &...) { return std::unexpected("Operator expected Value"); }
 
-  const Env &_env;
+  Result operator()(const auto &...) { return std::unexpected(Error::kInvalidOp); }
 };
