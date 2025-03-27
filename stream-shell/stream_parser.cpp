@@ -58,7 +58,7 @@ struct ToStream {
     if (auto result = value(_closure)) {
       return std::visit(*this, std::move(*result));
     } else {
-      return ranges::views::single(std::unexpected(Error::kJsonError));
+      return ranges::views::single(std::unexpected(result.error()));
     }
   }
 

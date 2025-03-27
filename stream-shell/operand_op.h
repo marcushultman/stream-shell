@@ -29,6 +29,10 @@ inline bool isTruthy(const google::protobuf::Any &value) {
   return true;
 }
 
+inline bool isTruthy(const Value &value) {
+  return std::visit([](auto &value) { return isTruthy(value); }, value);
+}
+
 template <typename T>
 concept IsValue = InVariant<Value, T>;
 
@@ -82,6 +86,18 @@ struct OperandOp {
     };
   }
 
+  auto eval(const Stream &lhs, const IsValue auto &rhs) const -> ClosureValue {
+    return [lhs, op = op, rhs](const Closure &closure) -> Result<Value> {
+      if (op == "?") {
+        return ranges::all_of(Stream(lhs), [](auto value) { return value && isTruthy(*value); })
+                   ? Result<Value>(rhs)
+                   : std::unexpected(Error::kCoalesceSkip);
+      }
+      return std::unexpected(Error::kInvalidOp);
+    };
+
+    return [](auto &) { return std::unexpected((Error)1337); };
+  }
   auto eval(const IsValue auto &lhs, const IsValue auto &rhs) const -> Result<Value> {
     if (op == "||") return ValueOp<std::logical_or<>>()(lhs, rhs);
     if (op == "&&") return ValueOp<std::logical_and<>>()(lhs, rhs);
