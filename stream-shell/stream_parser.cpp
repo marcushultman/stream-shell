@@ -44,6 +44,7 @@ struct CommandBuilder {
   Stream input;
   Closure closure;
   int record_level = 0;
+  bool ternary = false;
   std::vector<Operand> operands;
 
   Print::Mode print_mode;
@@ -248,7 +249,7 @@ auto binaryOp(std::string_view op) {
 auto precedence(std::string_view op) {
   if (op == "=" || op == ":" || op == "->") return 1;
   if (op == ";") return 2;
-  if (op == "|") return 3;
+  if (op == "|" || op == "?") return 3;
   if (op == "!") return 9;
   if (auto p = binaryOp(op)) return p;
   return 0;
@@ -256,6 +257,38 @@ auto precedence(std::string_view op) {
 
 auto isOperator(std::string_view op) {
   return precedence(op) > 0;
+}
+
+bool isTruthy(Env &env, const CommandBuilder &cmd) {
+  struct Truthy {
+    Truthy(Env &env, const Closure &closure) : env{env}, closure{closure} {}
+    auto operator()(const google::protobuf::BytesValue &bytes) {
+      return ranges::any_of(bytes.value(), std::identity());
+    }
+    auto operator()(const google::protobuf::Value &value) {
+      if (value.has_null_value()) {
+        return false;
+      } else if (value.has_number_value()) {
+        return value.number_value() > 0;
+      } else if (value.has_string_value()) {
+        return !value.string_value().empty();
+      } else if (value.has_bool_value()) {
+        return value.bool_value();
+      } else if (value.has_struct_value()) {
+        return true;
+      } else if (value.has_list_value()) {
+        return !value.list_value().values().empty();
+      }
+      return false;
+    }
+    auto operator()(const google::protobuf::Any &value) { return true; }
+    auto operator()(const Stream &stream) { return ranges::distance(Stream(stream)) > 0; }
+    auto operator()(const StreamRef &ref) { return env.getEnv(ref) != nullptr; }
+    auto operator()(const Word &word) { return closure.vars.contains(word); }
+    Env &env;
+    const Closure &closure;
+  };
+  return !cmd.operands.empty() && std::visit(Truthy(env, cmd.closure), cmd.operands.back());
 }
 
 struct ToString {
@@ -494,6 +527,9 @@ auto StreamParserImpl::performOp(auto &&pred) -> std::expected<void, std::string
       env.setEnv(*lhs_ref, std::move(rhs).factory(env));
       cmds.push(std::move(lhs));
 
+    } else if (ops.top() == ":" && lhs.ternary) {
+      cmds.push(lhs.operands.empty() ? std::move(rhs) : std::move(lhs));
+
     } else if (ops.top() == ":") {
       std::optional<size_t> window;
 
@@ -533,6 +569,14 @@ auto StreamParserImpl::performOp(auto &&pred) -> std::expected<void, std::string
       }
       rhs.input = std::move(*stream);
       cmds.push(std::move(rhs));
+
+    } else if (ops.top() == "?") {
+      if (isTruthy(env, lhs)) {
+        cmds.push(std::move(rhs));
+      } else {
+        cmds.emplace();
+      }
+      cmds.top().ternary = true;
     }
     ops.pop();
   }
