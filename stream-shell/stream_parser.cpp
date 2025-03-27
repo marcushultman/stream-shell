@@ -362,19 +362,17 @@ auto toOperand(const Env &env, Closure &closure, std::string_view token) -> Oper
     return *stream;
   }
   if (auto val = google::protobuf::Value(); token.starts_with('`')) {
-    val.set_string_value(
-        toStringView(token | ranges::views::split(' ') |
-                     ranges::views::transform([&](auto &&s) { return toStringView(s); }) |
-                     ranges::views::transform([&](auto &&s) -> std::string_view {
-                       if (auto stream = env.getEnv({s})) {
-                         throw stream;
-                       }
-                       return s;
-                     }) |
-                     ranges::views::join));
+    val.set_string_value(token.substr(1, token.size() - 2) | ranges::views::split(' ') |
+                         ranges::views::transform([&](auto &&s) {
+                           if (auto stream = env.getEnv({toStringView(s)})) {
+                             throw stream;
+                           }
+                           return s;
+                         }) |
+                         ranges::views::join(' ') | ranges::to<std::string>());
     return val;
-  } else if (token.starts_with('\'')) {
-    val.set_string_value(token.substr(1, token.size() - 1));
+  } else if (token.starts_with("'")) {
+    val.set_string_value(token.substr(1, token.size() - 2));
     return val;
   } else if (google::protobuf::util::JsonStringToMessage(token, &val).ok()) {
     return val;
