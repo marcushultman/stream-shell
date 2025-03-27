@@ -305,6 +305,7 @@ struct StreamParserImpl final : StreamParser {
 
  private:
   auto isRecord() -> bool;
+  auto operatorCanBeApplied(std::string_view op) -> bool;
   auto performOp(auto &&pred) -> std::expected<void, std::string>;
 
   Env &env;
@@ -320,7 +321,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
   cmds.emplace();
 
   for (auto token : tokens) {
-    if (isOperator(token) && !cmds.top().record_level) {
+    if (isOperator(token) && operatorCanBeApplied(token)) {
       if (auto res = performOp([token](auto &op) { return precedence(op) >= precedence(token); });
           !res.has_value()) {
         return std::unexpected(res.error());
@@ -330,6 +331,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
       auto &rhs = cmds.emplace();
 
       rhs.closure = lhs.closure;
+      rhs.record_level = lhs.record_level;
 
       if (token == "->") {
         if (lhs.operands.size() != 1) {
@@ -369,6 +371,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
       cmds.top().operands.push_back(std::move(*stream));
 
     } else if (token == "{" && !isRecord()) {
+      // Produce the input to this closure
       if (auto res = performOp([&](auto &op) { return op != "{" && op != "("; });
           !res.has_value()) {
         return std::unexpected(res.error());
@@ -382,9 +385,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
       rhs.closure = lhs.closure;
 
     } else if (token == "}" && !cmds.top().record_level) {
-      if (ops.empty() || cmds.size() < 2) {
-        return std::unexpected("Misaligned '}'");
-      } else if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
+      if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
         return std::unexpected(res.error());
       }
       ops.pop();
@@ -400,6 +401,9 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
       rhs.record_level = lhs.record_level + 1;
 
     } else if (token == "}") {
+      if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
+        return std::unexpected(res.error());
+      }
       ops.pop();
       auto rhs = std::move(cmds.top());
       cmds.pop();
@@ -434,6 +438,13 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
 
 auto StreamParserImpl::isRecord() -> bool {
   return cmds.top().record_level || ops.empty() || ops.top() == "(" || !cmds.top().operands.empty();
+}
+
+auto StreamParserImpl::operatorCanBeApplied(std::string_view op) -> bool {
+  if (cmds.top().record_level) {
+    return binaryOp(op);
+  }
+  return true;
 }
 
 auto StreamParserImpl::performOp(auto &&pred) -> std::expected<void, std::string> {
