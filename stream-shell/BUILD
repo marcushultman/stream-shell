@@ -2,9 +2,14 @@ cc_library(
   name = "stream-shell-lib",
   hdrs = [
     "builtin.h",
+    "closure.h",
     "stream_parser.h",
     "stream_printer.h",
+    "operand_op.h",
+    "operand.h",
     "tokenize.h",
+    "value_op.h",
+    "variant_ext.h",
   ],
   srcs = [
     "stream_parser.cpp",
