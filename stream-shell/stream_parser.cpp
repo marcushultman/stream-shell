@@ -310,10 +310,8 @@ struct ToJSON {
     }
     auto value = google::protobuf::Value();
     auto *json = value.mutable_struct_value();
-    if (auto status = google::protobuf::json::JsonStringToMessage(str, json); status.ok()) {
+    if (google::protobuf::json::JsonStringToMessage(str, json).ok()) {
       return value;
-    } else {
-      std::cerr << status.message() << std::endl;
     }
     return std::unexpected(Error::kJsonError);
   }
@@ -323,12 +321,32 @@ struct ToJSON {
   Error error = Error::kSuccess;
 };
 
-auto toJSON(Env &env, const Closure &closure, const std::vector<Operand> &operands) -> Operand {
-  if (auto result = ToJSON(env, closure).from(operands)) {
-    return *result;
-  } else {
-    return [error = result.error()](auto &) { return std::unexpected(error); };
+auto toJSON(Env &env, std::vector<Operand> &&operands) -> Operand {
+  return [&env, operands = std::move(operands)](const Closure &closure) -> Result<Value> {
+    if (auto result = ToJSON(env, closure).from(operands)) {
+      return *result;
+    } else {
+      return std::unexpected(result.error());
+    }
+  };
+}
+
+auto lookupField(auto &value, auto &path) -> Value {
+  if (path.size() > 1) {
+    if (auto *json = std::get_if<google::protobuf::Value>(&value)) {
+      return ranges::fold_left(
+          path | ranges::views::drop(1), *json, [](const auto &json, auto &field) {
+            if (json.has_struct_value()) {
+              auto &fields = json.struct_value().fields();
+              if (auto it = fields.find(field); it != fields.end()) {
+                return it->second;
+              }
+            }
+            return json;
+          });
+    }
   }
+  return value;
 }
 
 //
@@ -446,6 +464,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens) -> Printabl
 
       rhs.operands.push_back(token);
       rhs.record_level = lhs.record_level + 1;
+      rhs.closure = lhs.closure;
 
     } else if (token == "}") {
       if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
@@ -456,7 +475,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens) -> Printabl
       cmds.pop();
 
       rhs.operands.push_back(token);
-      cmds.top().operands.push_back(toJSON(env, rhs.closure, std::move(rhs.operands)));
+      cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
 
     } else {
       cmds.top().operands.push_back(toOperand(token));
@@ -512,23 +531,10 @@ auto StreamParserImpl::toOperand(std::string_view token) -> Operand {
 
   auto path = token | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
 
-  if (auto it = closure.vars.find(path[0]); it != closure.vars.end() && ops.top() != "{") {
+  if (auto it = closure.vars.find(path[0]);
+      it != closure.vars.end() && (ops.top() != "{" || cmds.top().record_level)) {
     return [value = it->second, path = std::move(path)](const Closure &closure) -> Result<Value> {
-      if (path.size() > 1) {
-        if (auto *json = std::get_if<google::protobuf::Value>(value.get())) {
-          return ranges::fold_left(
-              path | ranges::views::drop(1), *json, [](const auto &json, auto &field) {
-                if (json.has_struct_value()) {
-                  auto &fields = json.struct_value().fields();
-                  if (auto it = fields.find(field); it != fields.end()) {
-                    return it->second;
-                  }
-                }
-                return json;
-              });
-        }
-      }
-      return *value;
+      return lookupField(*value, path);
     };
   }
   return Word(token);
@@ -600,13 +606,6 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
       cmds.push(std::move(lhs));
 
     } else if (ops.top() == "->") {
-      if (lhs.operands.size() != 1) {
-        return std::unexpected(Error::kMissingOperand);
-      }
-      auto closure_var = std::get<Word>(lhs.operands[0]);
-      assert(rhs.closure.vars.size() >= lhs.closure.vars.size());
-      assert(rhs.closure.vars.contains(closure_var));
-
       cmds.push(std::move(rhs));
 
     } else if (ops.top() == ";") {
