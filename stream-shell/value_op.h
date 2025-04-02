@@ -71,7 +71,7 @@ struct ValueOp {
   Result operator()(const StreamRef &ref) {
     if constexpr (OpResult<Op, bool, bool>::value) {
       google::protobuf::Value result;
-      result.set_bool_value(Op()(_env.getEnv(ref).has_value()));
+      result.set_bool_value(Op()(_env.getEnv(ref)));
       return result;
     }
     return std::unexpected("Operator expected Value");

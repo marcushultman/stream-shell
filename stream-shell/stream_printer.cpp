@@ -63,9 +63,6 @@ struct REPLPrinter final : Printer {
 };
 
 struct ToJSON {
-  auto operator()(const StreamError &err) {
-    return absl::Status(absl::StatusCode::kInternal, err.message);
-  }
   auto operator()(const auto &value) {
     scratch.clear();
     return google::protobuf::util::MessageToJsonString(value, &scratch);

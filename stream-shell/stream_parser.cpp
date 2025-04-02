@@ -8,6 +8,7 @@
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
+#include <range/v3/algorithm/for_each.hpp>
 #include <range/v3/all.hpp>
 #include <unistd.h>
 #include "builtin.h"
@@ -18,27 +19,18 @@
 
 namespace {
 
+const auto kNullValue = [] {
+  google::protobuf::Value null;
+  null.set_null_value(google::protobuf::NULL_VALUE);
+  return null;
+}();
+
 #if 0
 
 inline auto lookupType(std::string_view name) {
   auto *pool = google::protobuf::DescriptorPool::generated_pool();
   return pool ? pool->FindMessageTypeByName(name) : nullptr;
 }
-
-struct JsonList {
-  JsonList &&operator+(google::protobuf::Value &&v) && {
-    *_list.add_values() = std::move(v);
-    return std::move(*this);
-  }
-  friend auto &operator<<(std::ostream &os, JsonList &&list) {
-    (void)google::protobuf::util::MessageToJsonString(list._list, &list._json);
-    return os << list._json;
-  }
-
- private:
-  google::protobuf::ListValue _list;
-  std::string _json;
-};
 
 #endif
 
@@ -58,7 +50,9 @@ struct CommandBuilder {
   InputMode input_mode = InputMode::kStream;
   Stream input;
   Closure closure;
+  int record_level = 0;
   std::vector<Operand> operands;
+
   Print::Mode print_mode;
 
   StreamFactory factory(Env &env) && {
@@ -69,13 +63,14 @@ struct CommandBuilder {
         if (auto it = _closure.vars.find(var); it != _closure.vars.end()) {
           return *it->second;
         }
-        return StreamError(std::format("'{}' is not a variable", var.value));
+        return kNullValue;
       }
 
       auto operator()(Stream stream) { return stream; }
       auto operator()(Value val) -> Stream { return ranges::views::single(std::move(val)); }
       auto operator()(StreamRef ref) -> Stream {
-        return _env.getEnv(ref).transform([](auto &&f) { return f(); }).value_or(Stream());
+        auto stream = _env.getEnv(ref);
+        return stream ? stream() : Stream();
       }
       auto operator()(Word word) -> Stream { return ranges::views::single(varOp(word)); }
 
@@ -191,20 +186,14 @@ std::optional<Stream> parseNumericRange(const Closure &closure, std::string_view
   if (!from) {
     return {};
   }
-  using Pair = std::expected<std::pair<int64_t, std::optional<int64_t>>, std::string_view>;
-  return ranges::views::zip(*from, to) |
-         ranges::views::transform([from_str, to_str](auto from_to) -> Pair {
+  using Pair = std::pair<int64_t, std::optional<int64_t>>;
+  return ranges::views::zip(*from, to) | ranges::views::transform([](auto from_to) -> Pair {
            auto [from, to] = from_to;
-           if (!from) return std::unexpected(from_str);
-           if (!to && !to_str.empty()) return std::unexpected(to_str);
+           if (!from) return {};
            return std::pair{*from, to};
          }) |
          ranges::views::for_each([](auto pair) -> Stream {
-           if (!pair) {
-             return ranges::views::single(
-                 StreamError(std::format("'{}' is not a number", pair.error())));
-           }
-           auto [from, to] = *pair;
+           auto [from, to] = pair;
            return to ? Stream(ranges::views::iota(from, *to + 1) | toNumber)
                      : Stream(ranges::views::iota(from) | toNumber);
          });
@@ -266,6 +255,46 @@ auto isOperator(std::string_view op) {
   return precedence(op) > 0;
 }
 
+struct ToString {
+  ToString(Env &env) : _env{env} {}
+
+  auto operator()(Word word) -> std::string { return std::string(word.value); }
+  auto operator()(auto value) -> std::string {
+    std::string str;
+    (void)google::protobuf::json::MessageToJsonString(value, &str);
+    return str;
+  }
+  auto operator()(Stream stream) -> std::string {
+    return (*this)(
+        ranges::fold_left(stream, google::protobuf::ListValue(), [](auto &&list, auto &&value) {
+          if (auto *pvalue = std::get_if<google::protobuf::Value>(&value)) {
+            *list.add_values() = std::move(*pvalue);
+          }
+          return list;
+        }));
+  }
+  auto operator()(StreamRef ref) -> std::string {
+    auto stream = _env.getEnv(ref);
+    return stream ? (*this)(stream()) : (*this)(kNullValue);
+  }
+
+  Env &_env;
+};
+
+auto toJSON(Env &env, std::vector<Operand> &&operands) -> std::expected<Operand, std::string> {
+  google::protobuf::Value value;
+  auto str =
+      operands |
+      ranges::views::for_each([&](auto op) { return std::visit(ToString(env), std::move(op)); }) |
+      ranges::to<std::string>();
+  if (auto status = google::protobuf::json::JsonStringToMessage(str, value.mutable_struct_value());
+      status.ok()) {
+    return value;
+  } else {
+    return std::unexpected(std::string(status.message()));
+  }
+}
+
 //
 
 struct StreamParserImpl final : StreamParser {
@@ -275,6 +304,7 @@ struct StreamParserImpl final : StreamParser {
       -> std::expected<PrintableStream, std::string> override;
 
  private:
+  auto isRecord() -> bool;
   auto performOp(auto &&pred) -> std::expected<void, std::string>;
 
   Env &env;
@@ -290,7 +320,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
   cmds.emplace();
 
   for (auto token : tokens) {
-    if (isOperator(token)) {
+    if (isOperator(token) && !cmds.top().record_level) {
       if (auto res = performOp([token](auto &op) { return precedence(op) >= precedence(token); });
           !res.has_value()) {
         return std::unexpected(res.error());
@@ -338,13 +368,9 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
       }
       cmds.top().operands.push_back(std::move(*stream));
 
-    } else if (token == "{" && (ops.top() == "(" || !cmds.top().operands.empty())) {
-      // NOT A CLOSURE
-      return std::unexpected("not a closure");
-      // ops.push(token);
-
-    } else if (token == "{") {
-      if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
+    } else if (token == "{" && !isRecord()) {
+      if (auto res = performOp([&](auto &op) { return op != "{" && op != "("; });
+          !res.has_value()) {
         return std::unexpected(res.error());
       }
       ops.push(token);
@@ -355,7 +381,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
       rhs.input = std::move(lhs.input);
       rhs.closure = lhs.closure;
 
-    } else if (token == "}") {
+    } else if (token == "}" && !cmds.top().record_level) {
       if (ops.empty() || cmds.size() < 2) {
         return std::unexpected("Misaligned '}'");
       } else if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
@@ -365,6 +391,26 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
       auto rhs = std::move(cmds.top());
       cmds.pop();
       cmds.top() = std::move(rhs);
+
+    } else if (token == "{") {
+      ops.push(token);
+      auto &lhs = cmds.top();
+      auto &rhs = cmds.emplace();
+      rhs.operands.push_back(token);
+      rhs.record_level = lhs.record_level + 1;
+
+    } else if (token == "}") {
+      ops.pop();
+      auto rhs = std::move(cmds.top());
+      cmds.pop();
+
+      rhs.operands.push_back(token);
+
+      if (auto value = toJSON(env, std::move(rhs.operands))) {
+        cmds.top().operands.push_back(std::move(*value));
+      } else {
+        return std::unexpected(value.error());
+      }
 
     } else {
       cmds.top().operands.push_back(toOperand(env, cmds.top().closure, token));
@@ -384,6 +430,10 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens)
   return std::move(cmds.top()).build(env).transform([&](auto &&stream) {
     return std::pair{std::move(stream), std::move(print_mode)};
   });
+}
+
+auto StreamParserImpl::isRecord() -> bool {
+  return cmds.top().record_level || ops.empty() || ops.top() == "(" || !cmds.top().operands.empty();
 }
 
 auto StreamParserImpl::performOp(auto &&pred) -> std::expected<void, std::string> {

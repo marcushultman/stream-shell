@@ -1,7 +1,6 @@
 #pragma once
 
 #include <expected>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -10,17 +9,9 @@
 #include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
 
-/**
- * Errors occuring during Stream evaluation
- */
-struct StreamError {
-  std::string message;
-};
-
 using Value = std::variant<google::protobuf::BytesValue,  // Bytes
                            google::protobuf::Value,       // Primitives & JSON
-                           google::protobuf::Any,         // Strong types
-                           StreamError>;
+                           google::protobuf::Any>;        // Strong types
 
 using Stream = ranges::any_view<Value>;
 using StreamFactory = std::function<Stream()>;
@@ -31,7 +22,7 @@ struct StreamRef {
 
 struct Env {
   virtual ~Env() = default;
-  virtual std::optional<StreamFactory> getEnv(StreamRef) const = 0;
+  virtual StreamFactory getEnv(StreamRef) const = 0;
   virtual void setEnv(StreamRef, StreamFactory) = 0;
 };
 

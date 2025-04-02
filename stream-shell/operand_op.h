@@ -46,9 +46,13 @@ struct OperandOp {
       return ranges::views::single(ranges::ref(*it->second)) |
              ranges::views::transform([transform = std::move(transform)](const Value &value) {
                return std::visit(
-                   [&](auto &value) {
-                     auto result = transform(value);
-                     return result ? *result : StreamError{result.error()};
+                   [&](auto &value) -> Value {
+                     if (auto result = transform(value)) {
+                       return *result;
+                     }
+                     google::protobuf::Value null;
+                     null.set_null_value(google::protobuf::NULL_VALUE);
+                     return null;
                    },
                    value);
              });

@@ -6,7 +6,7 @@
 
 // env.h
 struct ProdEnv final : Env {
-  std::optional<StreamFactory> getEnv(StreamRef) const override { return {}; }
+  StreamFactory getEnv(StreamRef) const override { return {}; }
   void setEnv(StreamRef, StreamFactory) override {}
 };
 
