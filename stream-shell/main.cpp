@@ -15,7 +15,8 @@ int main(int argc, char **argv) {
   auto parser = makeStreamParser(env);
 
   for (const char *line; (line = linenoise("stream-shell v0.1 🚀> "));) {
-    printStream(parser->parse(tokenize(line) | ranges::to<std::vector>()));
+    printStream(parser->parse(tokenize(line) | ranges::to<std::vector>()),
+                [] { return linenoise("Next [Enter]"); });
   }
   return 0;
 }

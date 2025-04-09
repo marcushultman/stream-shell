@@ -7,7 +7,6 @@
 #include <google/protobuf/util/json_util.h>
 #include <range/v3/all.hpp>
 #include <unistd.h>
-#include "linenoise.h"
 
 namespace {
 
@@ -46,13 +45,13 @@ struct SlicePrinter final : Printer {
 };
 
 struct REPLPrinter final : Printer {
-  explicit REPLPrinter(bool all) : _all{all} {}
+  REPLPrinter(bool all, Prompt prompt) : _all{all}, _prompt{std::move(prompt)} {}
 
   bool print(size_t i, std::string_view value) override {
     if (i == 0 || _all) {
       std::cout << value << std::endl;
       return true;
-    } else if (auto *line = linenoise("Next [Enter]")) {
+    } else if (auto line = _prompt()) {
       std::cout << value << std::endl;
       _all = line == std::string_view(":");
       return true;
@@ -60,6 +59,7 @@ struct REPLPrinter final : Printer {
     return false;
   }
   bool _all = false;
+  Prompt _prompt;
 };
 
 struct ToJSON {
@@ -76,14 +76,16 @@ struct ToJSON {
   std::string scratch;
 };
 
-auto printStream(Stream &&stream, Print::Mode mode) -> std::expected<void, std::string> {
+auto printStream(Stream &&stream,
+                 Print::Mode mode,
+                 Prompt prompt) -> std::expected<void, std::string> {
   ToJSON to_json;
   std::unique_ptr<Printer> printer;
 
   if (auto slice = std::get_if<Print::Slice>(&mode)) {
     printer = std::make_unique<SlicePrinter>(slice->window);
   } else {
-    printer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full);
+    printer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full, std::move(prompt));
   }
 
   for (auto &&[i, result] : ranges::views::enumerate(std::move(stream))) {
@@ -101,8 +103,9 @@ auto printStream(Stream &&stream, Print::Mode mode) -> std::expected<void, std::
 
 }  // namespace
 
-void printStream(PrintableStream &&stream) {
-  if (auto status = printStream(std::move(stream.first), stream.second); !status.has_value()) {
+void printStream(PrintableStream &&stream, Prompt prompt) {
+  if (auto status = printStream(std::move(stream.first), stream.second, std::move(prompt));
+      !status.has_value()) {
     std::cerr << status.error() << std::endl;
   }
 }
