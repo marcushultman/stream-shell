@@ -1,0 +1,9 @@
+:root,
+body {
+  margin: 0;
+}
+
+.xterm {
+  width: 100vw;
+  height: 100vh
+}
