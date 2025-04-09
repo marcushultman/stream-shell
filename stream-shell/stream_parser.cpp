@@ -181,7 +181,7 @@ std::optional<Stream> parseNumericRange(const Closure &closure, std::string_view
     return {};
   }
   auto parse_number = [&](auto s) -> std::optional<ranges::any_view<std::optional<int64_t>>> {
-    if (int64_t i; std::from_chars(s.begin(), s.end(), i, 10).ec == std::errc{}) {
+    if (int64_t i; std::from_chars(s.data(), s.data() + s.size(), i, 10).ec == std::errc{}) {
       return ranges::views::single(i);
     } else if (auto it = closure.vars.find(Word{s}); it != closure.vars.end()) {
       return ranges::views::single(ranges::ref(*it->second)) |
