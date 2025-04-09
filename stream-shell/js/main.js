@@ -1,6 +1,6 @@
 import { Terminal } from "https://esm.sh/@xterm/xterm";
 import { FitAddon } from "https://esm.sh/@xterm/addon-fit";
-import Module from "../../bazel-bin/stream-shell/js/js/wasm-cc.js";
+import Module from "./wasm-cc.js";
 
 const term = new Terminal({
   convertEol: true,
@@ -18,6 +18,7 @@ term.loadAddon(fitAddon);
 term.open(document.getElementById("xterm"));
 fitAddon.fit();
 
+term.writeln(`{{welcome_message}}`);
 
 let state = {};
 

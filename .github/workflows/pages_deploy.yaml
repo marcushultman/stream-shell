@@ -1,0 +1,45 @@
+---
+name: GitHub Pages Deploy
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+      - run: bazel build //stream-shell/js
+
+      - run: mkdir -p dist/
+      - run: sed "s|{{welcome_message}}|stream-shell ${GITHUB_REF} (${GITHUB_SHA})|" stream-shell/js/main.js > dist/main.js
+      - run: cp stream-shell/js/index.html                dist/
+      - run: cp stream-shell/js/main.css                  dist/
+      - run: cp bazel-bin/stream-shell/js/js/wasm-cc.js   dist/
+      - run: cp bazel-bin/stream-shell/js/js/wasm-cc.wasm dist/
+
+      - id: deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
