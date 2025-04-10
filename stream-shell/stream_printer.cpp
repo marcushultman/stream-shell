@@ -45,13 +45,13 @@ struct SlicePrinter final : Printer {
 };
 
 struct REPLPrinter final : Printer {
-  REPLPrinter(bool all, Prompt prompt) : _all{all}, _prompt{std::move(prompt)} {}
+  REPLPrinter(bool all, const Prompt &prompt) : _all{all}, _prompt{prompt} {}
 
   bool print(size_t i, std::string_view value) override {
     if (i == 0 || _all) {
       std::cout << value << std::endl;
       return true;
-    } else if (auto line = _prompt()) {
+    } else if (auto line = _prompt("Next [Enter]")) {
       std::cout << value << std::endl;
       _all = line == std::string_view(":");
       return true;
@@ -59,7 +59,7 @@ struct REPLPrinter final : Printer {
     return false;
   }
   bool _all = false;
-  Prompt _prompt;
+  const Prompt &_prompt;
 };
 
 struct ToJSON {
@@ -78,14 +78,14 @@ struct ToJSON {
 
 auto printStream(Stream &&stream,
                  Print::Mode mode,
-                 Prompt prompt) -> std::expected<void, std::string> {
+                 const Prompt &prompt) -> std::expected<void, std::string> {
   ToJSON to_json;
   std::unique_ptr<Printer> printer;
 
   if (auto slice = std::get_if<Print::Slice>(&mode)) {
     printer = std::make_unique<SlicePrinter>(slice->window);
   } else {
-    printer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full, std::move(prompt));
+    printer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full, prompt);
   }
 
   for (auto &&[i, result] : ranges::views::enumerate(std::move(stream))) {
@@ -103,8 +103,8 @@ auto printStream(Stream &&stream,
 
 }  // namespace
 
-void printStream(PrintableStream &&stream, Prompt prompt) {
-  if (auto status = printStream(std::move(stream.first), stream.second, std::move(prompt));
+void printStream(PrintableStream &&stream, const Prompt &prompt) {
+  if (auto status = printStream(std::move(stream.first), stream.second, prompt);
       !status.has_value()) {
     std::cerr << status.error() << std::endl;
   }

@@ -7,7 +7,6 @@ cc_binary(
   ],
   deps = [
     "//stream-shell:stream-shell-lib",
-    "@linenoise.cpp//:linenoise-cpp",
   ],
   linkopts = [
     "-lembind",

@@ -7,6 +7,7 @@ cc_library(
     "stream_printer.h",
     "operand_op.h",
     "operand.h",
+    "repl.h",
     "tokenize.h",
     "value_op.h",
     "variant_ext.h",

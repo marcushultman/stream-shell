@@ -2,6 +2,6 @@
 
 #include "stream_parser.h"
 
-using Prompt = std::function<const char *()>;
+using Prompt = std::function<const char *(const char *prompt)>;
 
-void printStream(PrintableStream &&, Prompt);
+void printStream(PrintableStream &&, const Prompt &);
