@@ -22,6 +22,7 @@ jobs:
       - run: cp stream-shell/js/main.css                  dist/
       - run: cp bazel-bin/stream-shell/js/js/wasm-cc.js   dist/
       - run: cp bazel-bin/stream-shell/js/js/wasm-cc.wasm dist/
+      - run: echo "stream-shell.com" > dist/CNAME
 
       - id: deployment
         uses: actions/upload-pages-artifact@v3
