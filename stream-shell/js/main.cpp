@@ -1,12 +1,12 @@
-#include <iostream>
 #include <emscripten.h>
 #include <emscripten/val.h>
 #include "stream-shell/repl.h"
 
-const char *linenoise(const char *prompt) {
-  static std::string buffer;
-  (std::cout << prompt).flush();
-  auto result = emscripten::val::global().call<emscripten::val>("getline").await();
+std::string buffer;
+
+const char *readline(const char *prompt) {
+  buffer = prompt;
+  auto result = emscripten::val::global().call<emscripten::val>("readline", buffer).await();
   if (result.isNull()) {
     return nullptr;
   }
@@ -15,5 +15,5 @@ const char *linenoise(const char *prompt) {
 }
 
 int main(int argc, char **argv) {
-  return repl(linenoise), 0;
+  return repl(readline), 0;
 }
