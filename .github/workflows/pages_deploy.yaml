@@ -17,7 +17,7 @@ jobs:
       - run: bazel build //stream-shell/js
 
       - run: mkdir -p dist/
-      - run: DATE=$(date "+%Y-%m-%d") sed "s|{{welcome_message}}|stream-shell ${GITHUB_REF} (${GITHUB_SHA})|" stream-shell/js/main.js > dist/main.js
+      - run: DATE=$(date "+%Y-%m-%d") sed "s|{{welcome_message}}|stream-shell ${GITHUB_REF} (${GITHUB_SHA} - $DATE)|" stream-shell/js/main.js > dist/main.js
       - run: cp stream-shell/js/index.html                dist/
       - run: cp stream-shell/js/main.css                  dist/
       - run: cp bazel-bin/stream-shell/js/js/wasm-cc.js   dist/
