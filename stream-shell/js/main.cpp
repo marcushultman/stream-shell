@@ -15,5 +15,6 @@ const char *readline(const char *prompt) {
 }
 
 int main(int argc, char **argv) {
-  return repl(readline), 0;
+  for (;;) repl(readline);
+  return 0;
 }

@@ -24,7 +24,22 @@ fitAddon.fit();
 
 term.writeln(`{{welcome_message}}`);
 
-window.readline = (prompt) => rl.read(prompt);
+let ctrlCHandler = () => {};
+
+window.readline = (prompt) => Promise.race([
+  rl.read(prompt),
+  new Promise(resolve => (ctrlCHandler = () => resolve(null))),
+]);
+
+// keydown does not work for this...
+document.onkeyup = (e) => {
+  if (e.key.toLowerCase() === 'c' && e.ctrlKey) {
+    ctrlCHandler();
+  }
+};
+document.onkeydown = (e) => {
+  e.key.toLowerCase() === 'k' && e.metaKey && term.clear();
+};
 
 await Module({
   stdout: (e) => term.write(new Uint8Array([e])),
