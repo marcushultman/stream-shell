@@ -74,6 +74,14 @@ enum class InputMode {
   kValue,
 };
 
+template <typename T>
+struct ValueVisitor {
+  Result<T> operator()(const google::protobuf::BytesValue &value) { return value; }
+  Result<T> operator()(const google::protobuf::Value &value) { return value; }
+  Result<T> operator()(const google::protobuf::Any &value) { return value; }
+  Result<T> operator()(const auto &) { return std::unexpected(Error::kParseError); }
+};
+
 struct CommandBuilder {
   InputMode input_mode = InputMode::kStream;
   Stream input;
@@ -124,7 +132,14 @@ struct CommandBuilder {
   }
 
   Stream build(Env &env) && { return std::move(*this).factory(env)(); }
-
+  Operand operand(Env &env) && {
+    if (operands.size() == 1) {
+      if (auto operand = std::visit(ValueVisitor<Operand>(), operands[0])) {
+        return *operand;
+      }
+    }
+    return std::move(*this).build(env);
+  }
   PrintableStream print(Env &env) && {
     auto mode = std::move(print_mode);
     return {std::move(*this).build(env), std::move(mode)};
@@ -438,7 +453,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens) -> Printabl
       cmds.pop();
 
       // todo: build Value so that it can be used in ternary condition
-      cmds.top().operands.push_back(std::move(rhs).build(env));
+      cmds.top().operands.push_back(std::move(rhs).operand(env));
 
     } else if (token == "{" && isClosure()) {
       // Produce the input to closure
