@@ -352,22 +352,6 @@ auto lookupField(auto &value, auto &path) -> Value {
   return value;
 }
 
-struct Assignment {
-  Assignment(Env &env, Closure &closure) : _env{env}, _closure{closure} {}
-  Result<void> operator()(const StreamRef &ref, StreamFactory stream) {
-    _env.setEnv(ref, stream);
-    return {};
-  }
-  Result<void> operator()(const Word &override, StreamFactory stream) {
-    _closure.env_overrides[override] = std::move(stream);
-    return {};
-  }
-  Result<void> operator()(const auto &, auto) { return std::unexpected(Error::kInvalidStreamRef); }
-
-  Env &_env;
-  Closure &_closure;
-};
-
 //
 
 struct StreamParserImpl final : StreamParser {
@@ -625,13 +609,22 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
         return std::unexpected(Error::kMissingOperand);
       }
 
-      auto result = std::visit(Assignment(env, lhs.closure),
-                               lhs.operands[0],
-                               std::variant<StreamFactory>(std::move(rhs).factory(env)));
-      if (!result) {
-        return std::unexpected(result.error());
+      if (auto *ref = std::get_if<StreamRef>(&lhs.operands[0])) {
+        env.setEnv(*ref, std::move(rhs).factory(env));
+        lhs.operands.clear();
+
+      } else if (auto *var = std::get_if<Word>(&lhs.operands[0])) {
+        auto operands = rhs.operands;
+        if (!operands.empty()) {
+          operands.erase(operands.begin());
+          rhs.operands.resize(1);
+        }
+        lhs.closure.env_overrides[*var] = std::move(rhs).factory(env);
+        lhs.operands = operands;
+
+      } else {
+        return std::unexpected(Error::kInvalidStreamRef);
       }
-      lhs.operands.clear();
       cmds.push(std::move(lhs));
 
     } else if (ops.top() == "|") {

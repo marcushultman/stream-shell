@@ -89,6 +89,13 @@ BOOST_AUTO_TEST_CASE(tokenize_string) {
   BOOST_TEST(tokens("`foo $BAR baz`") == Tokens({"`foo $BAR baz`"}), kEach);
 }
 
+BOOST_AUTO_TEST_CASE(tokenize_assign) {
+  BOOST_TEST(tokens("FOO = 1") == Tokens({"FOO", "=", "1"}), kEach);
+  BOOST_TEST(tokens("FOO =1") == Tokens({"FOO", "=", "1"}), kEach);
+  BOOST_TEST(tokens("FOO= 1") == Tokens({"FOO", "=", "1"}), kEach);
+  BOOST_TEST(tokens("FOO=1") == Tokens({"FOO", "=", "1"}), kEach);
+}
+
 BOOST_AUTO_TEST_CASE(tokenize_complex) {
   BOOST_TEST(
       tokens(

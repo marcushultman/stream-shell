@@ -39,7 +39,7 @@ struct Tokenizer {
   }
 
   bool operator()(const Word &, char c) {
-    if (ranges::contains("(){}[]\"'`;:>,"sv, c) || std::isspace(c)) {
+    if (ranges::contains("(){}[]\"'`;:>,="sv, c) || std::isspace(c)) {
       _type = Init();
       return false;
     }
