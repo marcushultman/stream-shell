@@ -13,6 +13,8 @@ struct Word {
 };
 
 struct Closure {
+  std::map<Word, StreamFactory, std::less<>> env_overrides;
   std::map<Word, std::shared_ptr<Value>, std::less<>> vars;
+
   auto add(const Word &name) { return vars[name] = std::make_shared<Value>(); }
 };

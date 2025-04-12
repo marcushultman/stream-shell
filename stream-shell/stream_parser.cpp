@@ -46,6 +46,9 @@ struct ToStream {
   auto operator()(Value val) -> Stream { return ranges::views::single(std::move(val)); }
   auto operator()(Stream stream) { return stream; }
   auto operator()(const StreamRef &ref) -> Stream {
+    if (auto it = _closure.env_overrides.find(ref.name); it != _closure.env_overrides.end()) {
+      return it->second();
+    }
     auto stream = _env.getEnv(ref);
     return stream ? stream() : Stream();
   }
@@ -245,9 +248,9 @@ auto rightAssociative(std::string_view op) {
 auto precedence(const CommandBuilder &lhs, std::string_view op) {
   if (auto p = unaryOp(lhs.operands.empty(), op)) return p;
   if (auto p = binaryOp(op)) return p;
-  if (op == "=" || op == ":" || op == "->") return 1;
+  if (op == ":" || op == "->") return 1;
   if (op == ";") return 2;
-  if (op == "|") return 3;
+  if (op == "=" || op == "|") return 3;
   return 0;
 }
 
@@ -348,6 +351,22 @@ auto lookupField(auto &value, auto &path) -> Value {
   }
   return value;
 }
+
+struct Assignment {
+  Assignment(Env &env, Closure &closure) : _env{env}, _closure{closure} {}
+  Result<void> operator()(const StreamRef &ref, StreamFactory stream) {
+    _env.setEnv(ref, stream);
+    return {};
+  }
+  Result<void> operator()(const Word &override, StreamFactory stream) {
+    _closure.env_overrides[override] = std::move(stream);
+    return {};
+  }
+  Result<void> operator()(const auto &, auto) { return std::unexpected(Error::kInvalidStreamRef); }
+
+  Env &_env;
+  Closure &_closure;
+};
 
 //
 
@@ -508,6 +527,10 @@ auto StreamParserImpl::toOperand(std::string_view token) -> Operand {
                            ranges::views::transform([&env, &closure](auto &&token) -> std::string {
                              if (token.starts_with('$')) {
                                auto ref = StreamRef(token.substr(1));
+                               if (auto it = closure.env_overrides.find(ref.name);
+                                   it != closure.env_overrides.end()) {
+                                 return ToJSON(env, closure)(it->second());
+                               }
                                if (auto it = closure.vars.find(ref.name);
                                    it != closure.vars.end()) {
                                  return std::visit(ToJSON(env, closure), *it->second);
@@ -580,21 +603,6 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
       lhs.operands.append_range(rhs.operands);
       cmds.push(std::move(lhs));
 
-    } else if (ops.top() == "=") {
-      if (lhs.operands.size() != 1) {
-        return std::unexpected(Error::kMissingOperand);
-      }
-
-      auto ref = std::get_if<StreamRef>(&lhs.operands[0]);
-      if (!ref) {
-        return std::unexpected(Error::kInvalidStreamRef);
-      }
-      auto stream = std::move(rhs).factory(env);
-      env.setEnv(*ref, stream);
-
-      lhs.operands[0] = stream();
-      cmds.push(std::move(lhs));
-
     } else if (ops.top() == ":") {
       lhs.print_mode = [&] -> Print::Mode {
         if (!rhs.operands.empty())
@@ -611,6 +619,20 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
     } else if (ops.top() == ";") {
       ranges::for_each(std::move(lhs).build(env), [](auto &&) {});
       cmds.push(std::move(rhs));
+
+    } else if (ops.top() == "=") {
+      if (lhs.operands.size() != 1) {
+        return std::unexpected(Error::kMissingOperand);
+      }
+
+      auto result = std::visit(Assignment(env, lhs.closure),
+                               lhs.operands[0],
+                               std::variant<StreamFactory>(std::move(rhs).factory(env)));
+      if (!result) {
+        return std::unexpected(result.error());
+      }
+      lhs.operands.clear();
+      cmds.push(std::move(lhs));
 
     } else if (ops.top() == "|") {
       rhs.input = std::move(lhs).build(env);
