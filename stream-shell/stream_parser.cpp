@@ -78,9 +78,10 @@ struct CommandBuilder {
   InputMode input_mode = InputMode::kStream;
   Stream input;
   Closure closure;
-  int record_level = 0;
   std::vector<Operand> operands;
 
+  int record_level = 0;
+  bool freeze_operands = false;
   Print::Mode print_mode;
 
   StreamFactory factory(Env &env) && {
@@ -418,6 +419,9 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens) -> Printabl
         rhs.input = lhs.input | setClosureVar(rhs.closure, *closure_var);
       }
 
+    } else if (cmds.top().freeze_operands) {
+      return errorStream(Error::kMissingOperator);
+
     } else if (token == "(") {
       ops.push(token);
       auto &lhs = cmds.top();
@@ -458,6 +462,7 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens) -> Printabl
       auto rhs = std::move(cmds.top());
       cmds.pop();
 
+      rhs.freeze_operands = true;
       cmds.top() = std::move(rhs);
 
     } else if (token == "{") {
@@ -466,8 +471,8 @@ auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens) -> Printabl
       auto &rhs = cmds.emplace();
 
       rhs.operands.push_back(token);
-      rhs.record_level = lhs.record_level + 1;
       rhs.closure = lhs.closure;
+      rhs.record_level = lhs.record_level + 1;
 
     } else if (token == "}") {
       if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {

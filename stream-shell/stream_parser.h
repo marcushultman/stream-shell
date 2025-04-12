@@ -20,6 +20,7 @@ enum class Error : int {
 
   kCoalesceSkip,
 
+  kMissingOperator,
   kMissingOperand,
   kMissingVariable,
 
