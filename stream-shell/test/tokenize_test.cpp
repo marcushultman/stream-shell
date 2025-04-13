@@ -99,18 +99,31 @@ BOOST_AUTO_TEST_CASE(tokenize_assign) {
 BOOST_AUTO_TEST_CASE(tokenize_complex) {
   BOOST_TEST(
       tokens(
-          R"cmd(1 2 3 | 1..3 | user.proto.Person { name: "Albert" } | 1 (-2 + 3) | git add (ls src) | { i -> $i * 2 }; now :[-1]; repeat "na" | tail 3 ; "hello" > hello; 1 2 3 > lines.log; now &; $HOME ; foo<bar )cmd") ==
-          Tokens(
-              {"1",         "2",         "3",      "|",          "1..3", "|", "user.proto.Person",
-               "{",         "name",      ":",      "\"Albert\"", "}",    "|", "1",
-               "(",         "-",         "2",      "+",          "3",    ")", "|",
-               "git",       "add",       "(",      "ls",         "src",  ")", "|",
-               "{",         "i",         "->",     "$i",         "*",    "2", "}",
-               ";",         "now",       ":",      "[",          "-",    "1", "]",
-               ";",         "repeat",    "\"na\"", "|",          "tail", "3", ";",
-               "\"hello\"", ">",         "hello",  ";",          "1",    "2", "3",
-               ">",         "lines.log", ";",      "now",        "&",    ";", "$HOME",
-               ";",         "foo",       "<",      "bar"}),
+          R"cmd(1 2 3 | 1..3 | user.proto.Person { name: "Albert" } | 1 (-2 + 3) | git add (ls src) | { i -> i * 2 i..5 }; now :[-1]; repeat "na" | tail 3 ; "hello" > hello; 1 2 3 > lines.log; now &; $HOME ; foo<bar )cmd") ==
+          Tokens({"1",          "2",      "3",
+                  "|",          "1",      "..",
+                  "3",          "|",      "user.proto.Person",
+                  "{",          "name",   ":",
+                  "\"Albert\"", "}",      "|",
+                  "1",          "(",      "-",
+                  "2",          "+",      "3",
+                  ")",          "|",      "git",
+                  "add",        "(",      "ls",
+                  "src",        ")",      "|",
+                  "{",          "i",      "->",
+                  "i",          "*",      "2",
+                  "i",          "..",     "5",
+                  "}",          ";",      "now",
+                  ":",          "[",      "-",
+                  "1",          "]",      ";",
+                  "repeat",     "\"na\"", "|",
+                  "tail",       "3",      ";",
+                  "\"hello\"",  ">",      "hello",
+                  ";",          "1",      "2",
+                  "3",          ">",      "lines.log",
+                  ";",          "now",    "&",
+                  ";",          "$HOME",  ";",
+                  "foo",        "<",      "bar"}),
       kEach);
 }
 

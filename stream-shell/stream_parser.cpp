@@ -187,61 +187,14 @@ struct CommandBuilder {
 
 //
 
-constexpr auto toNumber = ranges::views::transform([](auto i) {
-  google::protobuf::Value value;
-  value.set_number_value(i);
-  return value;
-});
-
-// todo: implement as operator on Value
-std::optional<Stream> parseNumericRange(const Closure &closure, std::string_view token) {
-  auto delim = token.find(std::string_view(".."));
-  if (delim == std::string_view::npos) {
-    return {};
-  }
-  auto parse_number = [&](auto s) -> std::optional<ranges::any_view<std::optional<int64_t>>> {
-    if (int64_t i; std::from_chars(s.data(), s.data() + s.size(), i, 10).ec == std::errc{}) {
-      return ranges::views::single(i);
-    } else if (auto it = closure.vars.find(Word{s}); it != closure.vars.end()) {
-      return ranges::views::single(ranges::ref(*it->second)) |
-             ranges::views::transform([](const Value &val) -> std::optional<int64_t> {
-               if (auto *number_val = std::get_if<google::protobuf::Value>(&val);
-                   number_val->has_number_value()) {
-                 return number_val->number_value();
-               }
-               return {};
-             });
-    }
-    return {};
-  };
-
-  auto from_str = token.substr(0, delim);
-  auto to_str = token.substr(delim + 2);
-
-  auto from = parse_number(from_str);
-  auto to = parse_number(to_str).value_or(ranges::views::single(std::nullopt));
-
-  if (!from) {
-    return {};
-  }
-  using Pair = std::pair<int64_t, std::optional<int64_t>>;
-  return ranges::views::zip(*from, to) | ranges::views::transform([](auto from_to) -> Pair {
-           auto [from, to] = from_to;
-           if (!from) return {};
-           return std::pair{*from, to};
-         }) |
-         ranges::views::for_each([](auto pair) -> Stream {
-           auto [from, to] = pair;
-           return to ? Stream(ranges::views::iota(from, *to + 1) | toNumber)
-                     : Stream(ranges::views::iota(from) | toNumber);
-         });
-}
-
-//
-
-auto unaryOp(bool unary, std::string_view op) {
+auto unaryLeftOp(bool unary, std::string_view op) {
   if ((op == "+" || op == "-") && unary) return 10;
   if (op == "!") return 10;
+  return 0;
+}
+
+auto unaryRightOp(bool unary, std::string_view op) {
+  if ((op == "..") && unary) return 7;
   return 0;
 }
 
@@ -250,7 +203,7 @@ auto binaryOp(std::string_view op) {
   // if (op == "??") return ??;
   if (op == "||" || op == "&&") return 5;
   if (op == "==" || op == "!=") return 6;
-  if (op == "<" || op == "<=" || op == ">" || op == ">=") return 7;
+  if (op == "<" || op == "<=" || op == ">" || op == ">=" || op == "..") return 7;
   if (op == "+" || op == "-") return 8;
   if (op == "*" || op == "/" || op == "%") return 9;
   return 0;
@@ -262,7 +215,7 @@ auto rightAssociative(std::string_view op) {
 }
 
 auto precedence(const CommandBuilder &lhs, std::string_view op) {
-  if (auto p = unaryOp(lhs.operands.empty(), op)) return p;
+  if (auto p = unaryLeftOp(lhs.operands.empty(), op)) return p;
   if (auto p = binaryOp(op)) return p;
   if (op == ":" || op == "->") return 1;
   if (op == ";") return 2;
@@ -319,7 +272,7 @@ struct ToJSON {
     }
   }
 
-  auto from(const auto &operands) -> Result<google::protobuf::Value> {
+  auto from(const auto &operands) -> ClosureValue::result_type {
     auto str = operands | ranges::views::for_each([&](Operand operand) {
                  return std::visit(*this, std::move(operand));
                }) |
@@ -340,17 +293,13 @@ struct ToJSON {
   Error error = Error::kSuccess;
 };
 
-auto toJSON(Env &env, std::vector<Operand> &&operands) -> Operand {
-  return [&env, operands = std::move(operands)](const Closure &closure) -> Result<Value> {
-    if (auto result = ToJSON(env, closure).from(operands)) {
-      return *result;
-    } else {
-      return std::unexpected(result.error());
-    }
+auto toJSON(Env &env, std::vector<Operand> &&operands) -> ClosureValue {
+  return [&env, operands = std::move(operands)](const Closure &closure) {
+    return ToJSON(env, closure).from(operands);
   };
 }
 
-auto lookupField(auto &value, auto &path) -> Value {
+auto lookupField(auto &value, auto &path) -> ClosureValue::result_type {
   if (path.size() > 1) {
     if (auto *json = std::get_if<google::protobuf::Value>(&value)) {
       return ranges::fold_left(
@@ -365,7 +314,7 @@ auto lookupField(auto &value, auto &path) -> Value {
           });
     }
   }
-  return value;
+  return std::visit([](auto &value) -> ClosureValue::result_type { return value; }, value);
 }
 
 //
@@ -520,9 +469,6 @@ auto StreamParserImpl::toOperand(std::string_view token) -> Operand {
   if (token.starts_with('$')) {
     return StreamRef(token.substr(1));
   }
-  if (auto stream = parseNumericRange(closure, token)) {
-    return *stream;
-  }
   if (token.starts_with('`')) {
     return [&env = env, token](const Closure &closure) {
       auto val = google::protobuf::Value();
@@ -560,7 +506,7 @@ auto StreamParserImpl::toOperand(std::string_view token) -> Operand {
 
   if (auto it = closure.vars.find(path[0]);
       it != closure.vars.end() && (ops.top() != "{" || cmds.top().record_level)) {
-    return [value = it->second, path = std::move(path)](const Closure &closure) -> Result<Value> {
+    return [value = it->second, path = std::move(path)](const Closure &closure) {
       return lookupField(*value, path);
     };
   }
@@ -589,12 +535,19 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
     auto lhs = std::move(cmds.top());
     cmds.pop();
 
-    if (unaryOp(lhs.operands.empty(), ops.top())) {
+    if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
       if (rhs.operands.empty()) {
         return std::unexpected(Error::kMissingOperand);
       }
       rhs.operands[0] = std::visit(OperandOp(ops.top()), std::move(rhs.operands[0]));
       lhs.operands.append_range(rhs.operands);
+      cmds.push(std::move(lhs));
+
+    } else if (unaryRightOp(rhs.operands.empty(), ops.top())) {
+      if (lhs.operands.empty()) {
+        return std::unexpected(Error::kMissingOperand);
+      }
+      lhs.operands.back() = std::visit(OperandOp(ops.top()), std::move(lhs.operands.back()));
       cmds.push(std::move(lhs));
 
     } else if (binaryOp(ops.top())) {

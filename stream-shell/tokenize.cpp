@@ -98,5 +98,11 @@ auto tokenize(std::string_view input) -> ranges::any_view<std::string_view> {
   auto tokenizer = std::make_shared<Tokenizer>(input);
   return input | ranges::views::chunk_by([tokenizer](auto... s) { return (*tokenizer)(s...); }) |
          ranges::views::transform([](auto &&s) { return trim(toStringView(s)); }) |
-         ranges::views::filter([](const auto &s) { return !s.empty(); });
+         ranges::views::transform([](std::string_view &&s) -> std::vector<std::string_view> {
+           if (auto op = s.find(".."); op != std::string_view::npos) {
+             return {s.substr(0, op), s.substr(op, 2), s.substr(op + 2)};
+           }
+           return {s};
+         }) |
+         ranges::views::join | ranges::views::filter([](const auto &s) { return !s.empty(); });
 }
