@@ -35,6 +35,18 @@ inline bool isTruthy(const Stream &stream) {
   return ranges::all_of(Stream(stream), [](auto value) { return value && isTruthy(*value); });
 }
 
+struct Iota {
+  auto operator()(int64_t from) { return ranges::views::iota(from) | toNumber; }
+  auto operator()(int64_t from, int64_t to) { return ranges::views::iota(from, to + 1) | toNumber; }
+
+ private:
+  static constexpr auto toNumber = ranges::views::transform([](auto i) {
+    google::protobuf::Value value;
+    value.set_number_value(i);
+    return value;
+  });
+};
+
 template <typename T>
 concept IsValue = InVariant<ClosureValue::result_type::value_type, T>;
 
