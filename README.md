@@ -78,7 +78,7 @@ Parentheses can be used to isolate value expressions, and force anonymous record
 3
 ```
 ```
-> 1 | ({ name: "Bernard" })
+> 1 | ({ name: "Bernard" })
 { name: "Bernard" }
 ```
 
