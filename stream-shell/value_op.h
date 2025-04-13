@@ -110,16 +110,10 @@ struct ValueOp {
       }
 
     } else if (lhs.has_string_value() && rhs.has_string_value()) {
-      if constexpr (std::is_invocable_r_v<std::string,
-                                          Op,
-                                          const std::string &,
-                                          const std::string &>) {
+      if constexpr (std::is_invocable_r_v<std::string, Op, std::string, std::string>) {
         result.set_string_value(Op()(lhs.string_value(), rhs.string_value()));
 
-      } else if constexpr (std::is_invocable_r_v<bool,
-                                                 Op,
-                                                 const std::string &,
-                                                 const std::string &>) {
+      } else if constexpr (std::is_invocable_r_v<bool, Op, std::string, std::string>) {
         result.set_bool_value(Op()(lhs.string_value(), rhs.string_value()));
 
       } else {
