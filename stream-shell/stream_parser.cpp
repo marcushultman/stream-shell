@@ -293,7 +293,7 @@ struct ToJSON {
   Error error = Error::kSuccess;
 };
 
-auto toJSON(Env &env, std::vector<Operand> &&operands) -> ClosureValue {
+auto toJSON(Env &env, std::vector<Operand> &&operands) {
   return [&env, operands = std::move(operands)](const Closure &closure) {
     return ToJSON(env, closure).from(operands);
   };
