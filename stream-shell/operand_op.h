@@ -48,14 +48,17 @@ struct Iota {
 };
 
 template <typename T>
-concept IsValue = InVariant<ClosureValue::result_type::value_type, T>;
+concept IsValue = InVariant<Value, T>;
+
+template <typename T>
+concept ValueOrStream = InVariant<ClosureValue::result_type::value_type, T>;
 
 struct OperandOp {
   OperandOp(std::string_view op) : op{op} {}
 
   // todo: implement ops for StreamRef, (binary) Word
 
-  auto operator()(const IsValue auto &...v) const -> Operand {
+  auto operator()(const ValueOrStream auto &...v) const -> Operand {
     if (auto result = eval(v...)) {
       return std::visit([](auto value) -> Operand { return value; }, *result);
     } else {
@@ -65,6 +68,10 @@ struct OperandOp {
   auto operator()(const auto &...v) const -> Operand { return eval(v...); }
 
  private:
+  auto eval(const ValueOrStream auto &...) const -> ClosureValue::result_type {
+    return std::unexpected(Error::kInvalidOp);
+  }
+
   auto eval(const IsValue auto &v) const -> ClosureValue::result_type {
     if (op == "+") return ValueOp<std::identity>()(v);
     if (op == "-") return ValueOp<std::negate<>>()(v);
@@ -75,7 +82,7 @@ struct OperandOp {
   auto eval(const ClosureValue &v) const -> ClosureValue {
     return [op = *this, v](const Closure &closure) {
       return v(closure).and_then(
-          [&](auto v) { return std::visit([&](IsValue auto v) { return op.eval(v); }, v); });
+          [&](auto v) { return std::visit([&](auto v) { return op.eval(v); }, v); });
     };
   }
 
@@ -105,7 +112,7 @@ struct OperandOp {
     return [lhs, op = *this, rhs](const Closure &closure) {
       return lhs(closure)
           .and_then([&](auto lhs) {
-            return std::visit([&](IsValue auto lhs) { return op.eval(lhs, rhs); }, lhs);
+            return std::visit([&](ValueOrStream auto lhs) { return op.eval(lhs, rhs); }, lhs);
           })
           .or_else([&](Error err) -> ClosureValue::result_type {
             if (op.op == "?:" && err == Error::kCoalesceSkip) {
@@ -117,15 +124,14 @@ struct OperandOp {
   }
   auto eval(const IsValue auto &lhs, const ClosureValue &rhs) const -> ClosureValue {
     return [lhs, op = *this, rhs](const Closure &closure) {
-      return rhs(closure).and_then([&](auto rhs) {
-        return std::visit([&](IsValue auto rhs) { return op.eval(lhs, rhs); }, rhs);
-      });
+      return rhs(closure).and_then(
+          [&](auto rhs) { return std::visit([&](auto rhs) { return op.eval(lhs, rhs); }, rhs); });
     };
   }
   auto eval(const ClosureValue &lhs, const ClosureValue &rhs) const -> ClosureValue {
     return [lhs, op = *this, rhs](const Closure &closure) {
       return rhs(closure).and_then([&](auto rhs) {
-        return std::visit([&](IsValue auto rhs) { return op.eval(lhs, rhs)(closure); }, rhs);
+        return std::visit([&](auto rhs) { return op.eval(lhs, rhs)(closure); }, rhs);
       });
     };
   }
