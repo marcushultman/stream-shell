@@ -4,6 +4,7 @@ refresh_compile_commands(
   name = "refresh_compile_commands",
   targets = {
     "//stream-shell": "",
+    "//stream-shell/test": "",
     # ":js": "",
   },
 )

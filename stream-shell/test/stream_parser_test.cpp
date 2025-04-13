@@ -41,8 +41,8 @@ TestEnv env;
 
 auto parse(std::string input) {
   auto parser = makeStreamParser(env);
-  return parser->parse(tokenize(input) | ranges::to<std::vector>()).first |
-         ranges::to<std::vector<Result<Value>>>();
+  auto [stream, print_mode] = parser->parse(tokenize(input) | ranges::to<std::vector>());
+  return stream | ranges::to<std::vector<Result<Value>>>();
 }
 
 BOOST_AUTO_TEST_CASE(empty) {
