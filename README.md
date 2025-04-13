@@ -288,6 +288,13 @@ Assigning to `$PWD` is a way to change the current directory, for which there ex
 > cd /tmp
 ```
 
+Environment variables can be overridden for a single command, to maintain compatibility with other POSIX shells
+```
+> FOO="bar" $FOO
+bar
+```
+NOTE: local assignment to env var differs from stream assignment as only the next operand is used.
+
 ### Process streams
 
 Any external process that runs dumps their output to a process stream with the same name as their PID (`$<PID>`). Process streams doesn't use back-pressure, hence when consuming it, only new values will be emitted. A process stream is always created for the stream pipeline itself, mirroring the stream output, with a generated name (`$<shell PID>-<UID>`).
