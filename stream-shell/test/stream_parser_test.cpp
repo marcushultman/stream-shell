@@ -41,7 +41,7 @@ TestEnv env;
 
 auto parse(std::string input) {
   auto parser = makeStreamParser(env);
-  auto [stream, print_mode] = parser->parse(tokenize(input) | ranges::to<std::vector>());
+  auto [stream, print_mode] = parser->parse(tokenize(input));
   return stream | ranges::to<std::vector<Result<Value>>>();
 }
 

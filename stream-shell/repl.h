@@ -16,7 +16,6 @@ inline void repl(Prompt prompt) {
   auto parser = makeStreamParser(env);
 
   for (const char *line; (line = prompt("stream-shell v0.1 🚀> "));) {
-    printStream(parser->parse(tokenize(line) | ranges::to<std::vector>()),
-                [&](auto s) { return prompt(s); });
+    printStream(parser->parse(tokenize(line)), [&](auto s) { return prompt(s); });
   }
 }

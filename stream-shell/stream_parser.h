@@ -63,7 +63,7 @@ using PrintableStream = std::pair<Stream, Print::Mode>;
 
 struct StreamParser {
   virtual ~StreamParser() = default;
-  virtual auto parse(std::vector<std::string_view> &&) -> PrintableStream = 0;
+  virtual auto parse(ranges::any_view<std::string_view>) -> PrintableStream = 0;
 };
 
 /**

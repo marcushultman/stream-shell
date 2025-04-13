@@ -322,7 +322,7 @@ auto lookupField(auto &value, auto &path) -> ClosureValue::result_type {
 struct StreamParserImpl final : StreamParser {
   StreamParserImpl(Env &env) : env{env} {}
 
-  auto parse(std::vector<std::string_view> &&) -> PrintableStream override;
+  auto parse(ranges::any_view<std::string_view>) -> PrintableStream override;
 
  private:
   auto toOperand(std::string_view token) -> Operand;
@@ -342,7 +342,7 @@ auto setClosureVar(Closure &closure, const Word &var) {
   });
 }
 
-auto StreamParserImpl::parse(std::vector<std::string_view> &&tokens) -> PrintableStream {
+auto StreamParserImpl::parse(ranges::any_view<std::string_view> tokens) -> PrintableStream {
   // reset state
   cmds = {};
   ops = {};
