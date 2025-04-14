@@ -2,7 +2,8 @@ cc_test(
   name = "test",
   deps = [
     "@boost.test",
-    "//stream-shell:stream-shell-lib"
+    "//stream-shell:stream-shell-lib",
+    "@protobuf//:differencer",
   ],
   srcs = [
     "stream_parser_test.cpp",
