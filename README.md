@@ -353,7 +353,7 @@ add_one $*
 
 ### Configuration
 
-The configuration script for interactive stream-shell (`config.st`) is loaded from `$XDG_CONFIG_HOME` if set, otherwise `~/.config/stream-shell/`. You can open it in your default text editor (`$EDITOR`) by running the `config` command.
+The configuration script for interactive stream-shell (`config.st`) is loaded from `$XDG_CONFIG_HOME/stream-shell` if set, otherwise `~/.config/stream-shell/`. You can open it in your default text editor (`$EDITOR`) by running the `config` command.
 
 ## Shell Prompt
 

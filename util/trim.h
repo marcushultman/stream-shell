@@ -1,19 +1,14 @@
 #pragma once
 
-#include <string_view>
+#include <range/v3/all.hpp>
 
-// util/trim.h
-
-inline std::string_view trimLeft(std::string_view str) {
-  size_t start = str.find_first_not_of(" \t\n\r\f\v");
-  return (start == std::string_view::npos) ? "" : str.substr(start);
+inline auto trim(ranges::bidirectional_range auto str) {
+  auto is_space = [](auto c) { return std::isspace(c); };
+  return std::forward<decltype(str)>(str) | ranges::views::drop_while(is_space) |
+         ranges::views::reverse | ranges::views::drop_while(is_space) | ranges::views::reverse;
 }
 
-inline std::string_view trimRight(std::string_view str) {
-  size_t end = str.find_last_not_of(" \t\n\r\f\v");
-  return (end == std::string_view::npos) ? "" : str.substr(0, end + 1);
-}
-
-inline std::string_view trim(std::string_view str) {
-  return trimLeft(trimRight(str));
+inline auto trim(ranges::bidirectional_range auto str, size_t leading, size_t trailing) {
+  return std::forward<decltype(str)>(str) | ranges::views::drop(leading) | ranges::views::reverse |
+         ranges::views::drop(trailing) | ranges::views::reverse;
 }

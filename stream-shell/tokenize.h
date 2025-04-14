@@ -3,4 +3,5 @@
 #include <string_view>
 #include <range/v3/all.hpp>
 
-auto tokenize(std::string_view) -> ranges::any_view<std::string_view>;
+auto tokenize(ranges::any_view<const char, ranges::category::bidirectional>)
+    -> ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>;

@@ -1,7 +1,6 @@
 #include "tokenize.h"
 
 #include <variant>
-#include "util/to_string_view.h"
 #include "util/trim.h"
 
 namespace {
@@ -9,8 +8,6 @@ namespace {
 using namespace std::string_view_literals;
 
 struct Tokenizer {
-  Tokenizer(std::string_view input) { !input.empty() && (*this)(Init(), input[0]); }
-
   struct Init {};
   struct Word {};
   struct Operator {
@@ -52,7 +49,7 @@ struct Tokenizer {
     if (op.first && ranges::contains(ops, std::string{op.first, c})) {
       op.first = 0;
       return true;
-    } else if (op.first == '-' && !std::isdigit(c)) {
+    } else if (ranges::contains("-/"sv, op.first) && !std::isdigit(c)) {
       return (*this)(Word(), c);
     }
     return (*this)(Init(), c);
@@ -86,23 +83,45 @@ struct Tokenizer {
   }
 
  public:
-  bool operator()(char _, char b) { return std::visit(*this, _type, std::variant<char>{b}); }
+  bool operator()(const char &a, const char &b) {
+    if (&a != _prev) {
+      (*this)(Init(), a);
+    }
+    _prev = &b;
+    return std::visit(*this, _type, std::variant<char>{b});
+  }
 
  private:
+  const char *_prev = nullptr;
   Type _type;
 };
 
 }  // namespace
 
-auto tokenize(std::string_view input) -> ranges::any_view<std::string_view> {
-  auto tokenizer = std::make_shared<Tokenizer>(input);
-  return input | ranges::views::chunk_by([tokenizer](auto... s) { return (*tokenizer)(s...); }) |
-         ranges::views::transform([](auto &&s) { return trim(toStringView(s)); }) |
-         ranges::views::transform([](std::string_view &&s) -> std::vector<std::string_view> {
-           if (auto op = s.find(".."); op != std::string_view::npos) {
-             return {s.substr(0, op), s.substr(op, 2), s.substr(op + 2)};
-           }
-           return {s};
+auto tokenize(ranges::any_view<const char, ranges::category::bidirectional> input)
+    -> ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>> {
+  auto tokenizer = std::make_shared<Tokenizer>();
+  return input |
+         ranges::views::chunk_by([tokenizer](const auto &...s) { return (*tokenizer)(s...); }) |
+         ranges::views::transform([](ranges::bidirectional_range auto &&s) {
+           return trim(std::forward<decltype(s)>(s));
          }) |
-         ranges::views::join | ranges::views::filter([](const auto &s) { return !s.empty(); });
+         ranges::views::for_each(
+             [](ranges::bidirectional_range auto &&s)
+                 -> ranges::any_view<
+                     ranges::any_view<const char, ranges::category::bidirectional>> {
+               auto [db, de] = ranges::search(s, ".."sv);
+               if (db == ranges::end(s)) {
+                 return ranges::yield(s);
+               }
+               ranges::any_view<const char, ranges::category::bidirectional> a =
+                   ranges::subrange<decltype(db), decltype(db)>(ranges::begin(s), db);
+               ranges::any_view<const char, ranges::category::bidirectional> b = ".."sv;
+               ranges::any_view<const char, ranges::category::bidirectional> c =
+                   ranges::subrange<decltype(db), decltype(db)>(de, ranges::end(s));
+
+               return ranges::views::concat(
+                   ranges::views::single(a), ranges::views::single(b), ranges::views::single(c));
+             }) |
+         ranges::views::filter([](auto &&s) { return !ranges::empty(s); });
 }

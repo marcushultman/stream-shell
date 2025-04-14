@@ -6,10 +6,9 @@
 #include "stream_parser.h"
 
 struct Word {
-  Word(const std::string &value) : value{value} {}
-  Word(std::string_view value) : value{value} {}
-  std::string_view value;
-  std::strong_ordering operator<=>(const Word &) const = default;
+  Word(Token value) : value{value} {}
+  Token value;
+  bool operator<(const Word &rhs) const { return value < rhs.value; }
 };
 
 struct Closure {

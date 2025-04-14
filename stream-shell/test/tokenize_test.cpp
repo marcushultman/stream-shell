@@ -9,8 +9,8 @@ using namespace std::string_view_literals;
 
 const auto kEach = boost::test_tools::per_element();
 
-auto tokens(auto str) {
-  return tokenize(str) | ranges::to<std::vector>();
+auto tokens(std::string_view str) {
+  return tokenize(str) | ranges::to<std::vector<std::string>>();
 }
 
 using Tokens = decltype(tokens(""));
@@ -44,6 +44,7 @@ BOOST_AUTO_TEST_CASE(tokenize_stream_variable) {
   BOOST_TEST(tokens("$MY_VAR") == Tokens({"$MY_VAR"}), kEach);
   BOOST_TEST(tokens("$1234") == Tokens({"$1234"}), kEach);
   BOOST_TEST(tokens("$DASH-VAR") == Tokens({"$DASH-VAR"}), kEach);
+  BOOST_TEST(tokens("$HOME=/Users/hultman") == Tokens({"$HOME", "=", "/Users/hultman"}), kEach);
 }
 
 BOOST_AUTO_TEST_CASE(tokenize_number_arithmetic) {

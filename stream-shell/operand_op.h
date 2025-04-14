@@ -54,7 +54,7 @@ template <typename T>
 concept ValueOrStream = InVariant<ClosureValue::result_type::value_type, T>;
 
 struct OperandOp {
-  OperandOp(std::string_view op) : op{op} {}
+  OperandOp(Token op) : op{op} {}
 
   // todo: implement ops for StreamRef, (binary) Word
 
@@ -139,5 +139,5 @@ struct OperandOp {
     return [](auto &) { return std::unexpected(Error::kInvalidOp); };
   }
 
-  std::string_view op;
+  Token op;
 };

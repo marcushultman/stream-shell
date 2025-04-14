@@ -1,12 +1,30 @@
 #pragma once
 
 #include <expected>
+#include <functional>
 #include <string_view>
 #include <vector>
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
+
+//
+
+using Token = ranges::any_view<const char, ranges::category::forward>;
+
+inline auto operator==(std::ranges::range auto lhs, const char *rhs) {
+  return ranges::equal(lhs, std::string_view(rhs));
+}
+inline auto operator!=(std::ranges::range auto lhs, const char *rhs) {
+  return !(lhs == rhs);
+}
+
+inline auto operator<(const Token &lhs, const Token &rhs) {
+  return ranges::lexicographical_compare(Token(lhs), Token(rhs));
+}
+
+//
 
 using Value = std::variant<google::protobuf::BytesValue,  // Bytes
                            google::protobuf::Value,       // Primitives & JSON
@@ -40,7 +58,8 @@ using Stream = ranges::any_view<Result<Value>>;
 using StreamFactory = std::function<Stream()>;
 
 struct StreamRef {
-  std::string_view name;
+  Token name;
+  auto operator<(const StreamRef &rhs) const { return name < rhs.name; }
 };
 
 struct Env {
@@ -63,7 +82,9 @@ using PrintableStream = std::pair<Stream, Print::Mode>;
 
 struct StreamParser {
   virtual ~StreamParser() = default;
-  virtual auto parse(ranges::any_view<std::string_view>) -> PrintableStream = 0;
+  virtual auto parse(
+      ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>)
+      -> PrintableStream = 0;
 };
 
 /**

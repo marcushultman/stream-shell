@@ -14,9 +14,11 @@
 #include "closure.h"
 #include "operand.h"
 #include "operand_op.h"
-#include "util/to_string_view.h"
+#include "util/trim.h"
 
 namespace {
+
+using namespace std::string_view_literals;
 
 #if 0
 
@@ -46,15 +48,16 @@ struct ToStream {
   auto operator()(Value val) -> Stream { return ranges::views::single(std::move(val)); }
   auto operator()(Stream stream) { return stream; }
   auto operator()(const StreamRef &ref) -> Stream {
-    if (auto it = _closure.env_overrides.find(ref.name); it != _closure.env_overrides.end()) {
+    if (auto it = _closure.env_overrides.find(Word(ref.name)); it != _closure.env_overrides.end()) {
       return it->second();
+    } else if (auto stream = _env.getEnv(ref)) {
+      return stream();
     }
-    auto stream = _env.getEnv(ref);
-    return stream ? stream() : Stream();
+    return ranges::views::single(std::unexpected(Error::kInvalidStreamRef));
   }
   auto operator()(const Word &word) -> Stream {
     google::protobuf::Value value;
-    value.set_string_value(word.value);
+    value.set_string_value(Token(word.value) | ranges::to<std::string>);
     return ranges::views::single(std::move(value));
   }
   auto operator()(const ClosureValue &value) -> Stream {
@@ -113,7 +116,8 @@ struct CommandBuilder {
                    //  DEMO print out the words
                    for (auto [i, operand] : ranges::views::enumerate(operands)) {
                      auto *word = std::get_if<Word>(&operand);
-                     std::cerr << (i ? " " : "") << (word ? word->value : "?");
+                     std::cerr << (i ? " " : "")
+                               << (word ? (Token(word->value) | ranges::to<std::string>) : "?");
                    }
                    std::cerr << "\n";
 
@@ -187,18 +191,18 @@ struct CommandBuilder {
 
 //
 
-auto unaryLeftOp(bool unary, std::string_view op) {
+auto unaryLeftOp(bool unary, std::ranges::range auto op) {
   if ((op == "+" || op == "-") && unary) return 10;
   if (op == "!") return 10;
   return 0;
 }
 
-auto unaryRightOp(bool unary, std::string_view op) {
+auto unaryRightOp(bool unary, std::ranges::range auto op) {
   if ((op == "..") && unary) return 7;
   return 0;
 }
 
-auto binaryOp(std::string_view op) {
+auto binaryOp(std::ranges::range auto op) {
   if (op == "?" || op == "?:") return 4;
   // if (op == "??") return ??;
   if (op == "||" || op == "&&") return 5;
@@ -209,12 +213,12 @@ auto binaryOp(std::string_view op) {
   return 0;
 }
 
-auto rightAssociative(std::string_view op) {
+auto rightAssociative(std::ranges::range auto op) {
   if (op == "?") return true;
   return false;
 }
 
-auto precedence(const CommandBuilder &lhs, std::string_view op) {
+auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
   if (auto p = unaryLeftOp(lhs.operands.empty(), op)) return p;
   if (auto p = binaryOp(op)) return p;
   if (op == ":" || op == "->") return 1;
@@ -223,7 +227,7 @@ auto precedence(const CommandBuilder &lhs, std::string_view op) {
   return 0;
 }
 
-auto isOperator(const CommandBuilder &lhs, std::string_view op) {
+auto isOperator(const CommandBuilder &lhs, std::ranges::range auto op) {
   return precedence(lhs, op) > 0;
 }
 
@@ -262,7 +266,7 @@ struct ToJSON {
     error = Error::kInvalidStreamRef;
     return {};
   }
-  auto operator()(Word word) -> std::string { return std::string(word.value); }
+  auto operator()(Word word) -> std::string { return word.value | ranges::to<std::string>; }
   auto operator()(ClosureValue value) -> std::string {
     if (auto result = value(_closure)) {
       return std::visit(*this, *result);
@@ -322,18 +326,19 @@ auto lookupField(auto &value, auto &path) -> ClosureValue::result_type {
 struct StreamParserImpl final : StreamParser {
   StreamParserImpl(Env &env) : env{env} {}
 
-  auto parse(ranges::any_view<std::string_view>) -> PrintableStream override;
+  auto parse(ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>)
+      -> PrintableStream override;
 
  private:
-  auto toOperand(std::string_view token) -> Operand;
+  auto toOperand(ranges::bidirectional_range auto token) -> Operand;
   auto isClosure() -> bool;
-  auto operatorCanBeApplied(std::string_view op) -> bool;
+  auto operatorCanBeApplied(std::ranges::range auto op) -> bool;
 
   auto performOp(auto &&pred) -> Result<void>;
 
   Env &env;
   std::stack<CommandBuilder> cmds;
-  std::stack<std::string_view> ops;
+  std::stack<Token> ops;
 };
 
 auto setClosureVar(Closure &closure, const Word &var) {
@@ -342,7 +347,9 @@ auto setClosureVar(Closure &closure, const Word &var) {
   });
 }
 
-auto StreamParserImpl::parse(ranges::any_view<std::string_view> tokens) -> PrintableStream {
+auto StreamParserImpl::parse(
+    ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>> tokens)
+    -> PrintableStream {
   // reset state
   cmds = {};
   ops = {};
@@ -434,7 +441,7 @@ auto StreamParserImpl::parse(ranges::any_view<std::string_view> tokens) -> Print
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
-      rhs.operands.push_back(token);
+      rhs.operands.push_back(Word(token));
       rhs.closure = lhs.closure;
       rhs.record_level = lhs.record_level + 1;
 
@@ -446,7 +453,7 @@ auto StreamParserImpl::parse(ranges::any_view<std::string_view> tokens) -> Print
       auto rhs = std::move(cmds.top());
       cmds.pop();
 
-      rhs.operands.push_back(token);
+      rhs.operands.push_back(Word(token));
       cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
 
     } else {
@@ -463,48 +470,48 @@ auto StreamParserImpl::parse(ranges::any_view<std::string_view> tokens) -> Print
   return std::move(cmds.top()).print(env);
 }
 
-auto StreamParserImpl::toOperand(std::string_view token) -> Operand {
+auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Operand {
   auto &closure = cmds.top().closure;
 
-  if (token.starts_with('$')) {
-    return StreamRef(token.substr(1));
+  if (ranges::starts_with(token, "$"sv)) {
+    return StreamRef(token | ranges::views::drop(1));
   }
-  if (token.starts_with('`')) {
-    return [&env = env, token](const Closure &closure) {
+  if (ranges::starts_with(token, "`"sv)) {
+    return [&env = env, token = token](const Closure &closure) {
       auto val = google::protobuf::Value();
-      val.set_string_value(token.substr(1, token.size() - 2) | ranges::views::split(' ') |
-                           ranges::views::transform([&](auto &&s) { return toStringView(s); }) |
+      val.set_string_value(trim(token, 1, 1) | ranges::views::split(' ') |
                            ranges::views::transform([&env, &closure](auto &&token) -> std::string {
-                             if (token.starts_with('$')) {
-                               auto ref = StreamRef(token.substr(1));
-                               if (auto it = closure.env_overrides.find(ref.name);
+                             if (ranges::starts_with(token, "$"sv)) {
+                               auto ref = StreamRef(token | ranges::views::drop(1));
+                               if (auto it = closure.env_overrides.find(Word(ref.name));
                                    it != closure.env_overrides.end()) {
                                  return ToJSON(env, closure)(it->second());
                                }
-                               if (auto it = closure.vars.find(ref.name);
+                               if (auto it = closure.vars.find(Word(ref.name));
                                    it != closure.vars.end()) {
                                  return std::visit(ToJSON(env, closure), *it->second);
                                }
                                auto stream = env.getEnv(ref);
                                return stream ? ToJSON(env, closure)(stream()) : std::string();
                              }
-                             return std::string(token);
+                             return token | ranges::to<std::string>;
                            }) |
                            ranges::views::join(' ') | ranges::to<std::string>());
       return val;
     };
   }
-  if (auto val = google::protobuf::Value(); token.starts_with("'")) {
-    val.set_string_value(token.substr(1, token.size() - 2));
+  if (auto val = google::protobuf::Value(); ranges::starts_with(token, "'"sv)) {
+    val.set_string_value(trim(token, 1, 1) | ranges::to<std::string>);
     return val;
 
-  } else if (google::protobuf::util::JsonStringToMessage(token, &val).ok()) {
+  } else if (google::protobuf::util::JsonStringToMessage(token | ranges::to<std::string>, &val)
+                 .ok()) {
     return val;
   }
 
   auto path = token | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
 
-  if (auto it = closure.vars.find(path[0]);
+  if (auto it = closure.vars.find(Word(path[0]));
       it != closure.vars.end() && (ops.top() != "{" || cmds.top().record_level)) {
     return [value = it->second, path = std::move(path)](const Closure &closure) {
       return lookupField(*value, path);
@@ -518,7 +525,7 @@ auto StreamParserImpl::isClosure() -> bool {
            !cmds.top().operands.empty());
 }
 
-auto StreamParserImpl::operatorCanBeApplied(std::string_view op) -> bool {
+auto StreamParserImpl::operatorCanBeApplied(std::ranges::range auto op) -> bool {
   if (cmds.top().record_level) {
     return binaryOp(op);
   }
