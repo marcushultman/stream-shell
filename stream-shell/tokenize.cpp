@@ -83,16 +83,16 @@ struct Tokenizer {
   }
 
  public:
-  bool operator()(const char &a, const char &b) {
-    if (&a != _prev) {
+  bool operator()(auto t1, auto t2) {
+    auto [a, i] = t1;
+    if (!i) {
       (*this)(Init(), a);
     }
-    _prev = &b;
+    auto [b, _] = t2;
     return std::visit(*this, _type, std::variant<char>{b});
   }
 
  private:
-  const char *_prev = nullptr;
   Type _type;
 };
 
@@ -101,8 +101,9 @@ struct Tokenizer {
 auto tokenize(ranges::any_view<const char, ranges::category::bidirectional> input)
     -> ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>> {
   auto tokenizer = std::make_shared<Tokenizer>();
-  return input |
-         ranges::views::chunk_by([tokenizer](const auto &...s) { return (*tokenizer)(s...); }) |
+  return ranges::views::zip(input, ranges::views::iota(0)) |
+         ranges::views::chunk_by([tokenizer](auto... t) { return (*tokenizer)(t...); }) |
+         ranges::views::transform([](auto &&t) { return t | ranges::views::keys; }) |
          ranges::views::transform([](ranges::bidirectional_range auto &&s) {
            return trim(std::forward<decltype(s)>(s));
          }) |
