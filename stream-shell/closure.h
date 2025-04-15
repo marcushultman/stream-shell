@@ -2,13 +2,14 @@
 
 #include <map>
 #include <memory>
-#include <string_view>
 #include "stream_parser.h"
 
 struct Word {
-  Word(Token value) : value{value} {}
   Token value;
-  bool operator<(const Word &rhs) const { return value < rhs.value; }
+  auto operator<(const Word &rhs) const { return value < rhs.value; }
+
+  friend bool operator<(const Word &lhs, const Token &rhs) { return lhs.value < rhs; }
+  friend bool operator<(const Token &lhs, const Word &rhs) { return lhs < rhs.value; }
 };
 
 struct Closure {

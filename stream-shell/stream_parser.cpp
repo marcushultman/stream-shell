@@ -48,7 +48,7 @@ struct ToStream {
   auto operator()(Value val) -> Stream { return ranges::views::single(std::move(val)); }
   auto operator()(Stream stream) { return stream; }
   auto operator()(const StreamRef &ref) -> Stream {
-    if (auto it = _closure.env_overrides.find(Word(ref.name)); it != _closure.env_overrides.end()) {
+    if (auto it = _closure.env_overrides.find(ref.name); it != _closure.env_overrides.end()) {
       return it->second();
     } else if (auto stream = _env.getEnv(ref)) {
       return stream();
@@ -441,7 +441,7 @@ auto StreamParserImpl::parse(
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
-      rhs.operands.push_back(Word(token));
+      rhs.operands.push_back(Word{token});
       rhs.closure = lhs.closure;
       rhs.record_level = lhs.record_level + 1;
 
@@ -453,7 +453,7 @@ auto StreamParserImpl::parse(
       auto rhs = std::move(cmds.top());
       cmds.pop();
 
-      rhs.operands.push_back(Word(token));
+      rhs.operands.push_back(Word{token});
       cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
 
     } else {
@@ -483,11 +483,11 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
                            ranges::views::transform([&env, &closure](auto &&token) -> std::string {
                              if (ranges::starts_with(token, "$"sv)) {
                                auto ref = StreamRef(token | ranges::views::drop(1));
-                               if (auto it = closure.env_overrides.find(Word(ref.name));
+                               if (auto it = closure.env_overrides.find(ref.name);
                                    it != closure.env_overrides.end()) {
                                  return ToJSON(env, closure)(it->second());
                                }
-                               if (auto it = closure.vars.find(Word(ref.name));
+                               if (auto it = closure.vars.find(ref.name);
                                    it != closure.vars.end()) {
                                  return std::visit(ToJSON(env, closure), *it->second);
                                }
@@ -511,13 +511,13 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
 
   auto path = token | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
 
-  if (auto it = closure.vars.find(Word(path[0]));
+  if (auto it = closure.vars.find(Word{path[0]});
       it != closure.vars.end() && (ops.top() != "{" || cmds.top().record_level)) {
     return [value = it->second, path = std::move(path)](const Closure &closure) {
       return lookupField(*value, path);
     };
   }
-  return Word(token);
+  return Word{token};
 }
 
 auto StreamParserImpl::isClosure() -> bool {

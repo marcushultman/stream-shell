@@ -3,7 +3,6 @@
 #include <expected>
 #include <functional>
 #include <string_view>
-#include <vector>
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/wrappers.pb.h>
@@ -13,15 +12,16 @@
 
 using Token = ranges::any_view<const char, ranges::category::forward>;
 
+inline auto operator<(Token lhs, Token rhs) {
+  return ranges::lexicographical_compare(lhs, rhs);
+}
+
 inline auto operator==(std::ranges::range auto lhs, const char *rhs) {
   return ranges::equal(lhs, std::string_view(rhs));
 }
+
 inline auto operator!=(std::ranges::range auto lhs, const char *rhs) {
   return !(lhs == rhs);
-}
-
-inline auto operator<(const Token &lhs, const Token &rhs) {
-  return ranges::lexicographical_compare(Token(lhs), Token(rhs));
 }
 
 //
