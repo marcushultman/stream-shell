@@ -1,6 +1,7 @@
 cc_library(
   name = "stream-shell-lib",
   hdrs = [
+    "builtins/add.h",
     "builtin.h",
     "closure.h",
     "stream_parser.h",
@@ -8,6 +9,7 @@ cc_library(
     "operand_op.h",
     "operand.h",
     "repl.h",
+    "to_stream.h",
     "tokenize.h",
     "value_op.h",
     "variant_ext.h",

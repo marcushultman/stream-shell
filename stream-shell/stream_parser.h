@@ -7,6 +7,7 @@
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
+#include "variant_ext.h"
 
 //
 
@@ -29,6 +30,9 @@ inline auto operator!=(std::ranges::range auto lhs, const char *rhs) {
 using Value = std::variant<google::protobuf::BytesValue,  // Bytes
                            google::protobuf::Value,       // Primitives & JSON
                            google::protobuf::Any>;        // Strong types
+
+template <typename T>
+concept IsValue = InVariant<Value, T>;
 
 enum class Error : int {
   kSuccess = 0,

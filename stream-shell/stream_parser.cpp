@@ -14,6 +14,7 @@
 #include "closure.h"
 #include "operand.h"
 #include "operand_op.h"
+#include "to_stream.h"
 #include "util/trim.h"
 
 namespace {
@@ -32,45 +33,6 @@ inline auto lookupType(std::string_view name) {
 auto errorStream(Error err) -> PrintableStream {
   return {ranges::views::single(std::unexpected(err)), Print::Pull{.full = true}};
 }
-
-struct ToStream {
-  ToStream(const Env &env, const Closure &closure) : _env{env}, _closure{closure} {}
-
-  auto operator()(google::protobuf::Value val) -> Stream {
-    if (val.has_list_value()) {
-      auto size = val.list_value().values().size();
-      return ranges::views::iota(0, size) |
-             ranges::views::transform(
-                 [list = std::move(*val.mutable_list_value())](auto i) { return list.values(i); });
-    }
-    return ranges::views::single(std::move(val));
-  }
-  auto operator()(Value val) -> Stream { return ranges::views::single(std::move(val)); }
-  auto operator()(Stream stream) { return stream; }
-  auto operator()(const StreamRef &ref) -> Stream {
-    if (auto it = _closure.env_overrides.find(ref.name); it != _closure.env_overrides.end()) {
-      return it->second();
-    } else if (auto stream = _env.getEnv(ref)) {
-      return stream();
-    }
-    return ranges::views::single(std::unexpected(Error::kInvalidStreamRef));
-  }
-  auto operator()(const Word &word) -> Stream {
-    google::protobuf::Value value;
-    value.set_string_value(Token(word.value) | ranges::to<std::string>);
-    return ranges::views::single(std::move(value));
-  }
-  auto operator()(const ClosureValue &value) -> Stream {
-    if (auto result = value(_closure)) {
-      return std::visit(*this, std::move(*result));
-    } else {
-      return ranges::views::single(std::unexpected(result.error()));
-    }
-  }
-
-  const Env &_env;
-  const Closure &_closure;
-};
 
 enum class InputMode {
   kStream,
@@ -103,25 +65,20 @@ struct CommandBuilder {
             operands = std::move(operands)] {
       auto build_stream = [&](auto &&input) -> Stream {
         return std::move(input) |
-               ranges::views::for_each([&env, closure, operands](const auto &) -> Stream {
+               ranges::views::for_each([&env, closure, operands](auto &&input) -> Stream {
                  if (operands.empty()) {
                    return {};
                  }
 
                  if (auto cmd = frontCommand(closure, operands)) {
-                   if (auto stream = findBuiltin(*cmd)) {
+                   if (auto stream = runBuiltin(ToStream(env, closure),
+                                                std::forward<decltype(input)>(input),
+                                                *cmd,
+                                                operands | ranges::views::drop(1))) {
                      return *stream;
                    }
-
-                   //  DEMO print out the words
-                   for (auto [i, operand] : ranges::views::enumerate(operands)) {
-                     auto *word = std::get_if<Word>(&operand);
-                     std::cerr << (i ? " " : "")
-                               << (word ? (Token(word->value) | ranges::to<std::string>) : "?");
-                   }
-                   std::cerr << "\n";
-
-                   return {};
+                   //  todo: implement command
+                   return ranges::views::single(std::unexpected(Error::kUnknown));
                  }
 
                  // Stream expression (ignoring input)
@@ -361,7 +318,7 @@ auto StreamParserImpl::parse(
             if (ternary) {
               return false;
             } else if (op == "?" && token == ":") {
-              token = "?:";
+              token = "?:"sv;
               return (ternary = true);
             }
             auto a = precedence(cmds.top(), op);
