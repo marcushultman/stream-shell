@@ -56,71 +56,78 @@ struct Iota {
   });
 };
 
-template <typename T>
-concept ValueOrStream = InVariant<ClosureValue::result_type::value_type, T>;
+struct Background {
+  auto operator()(Stream s) {
+    // todo: implement backgrounding
+    return std::unexpected(Error::kInvalidOp);
+  }
+};
 
 /**
  * Visits Operand variants transforming Values. For use in operators and builins
  */
-template <typename Transform, typename ErrTransform = std::nullptr_t>
+template <typename ValueT, typename StreamT = std::nullptr_t, typename ErrorT = std::nullptr_t>
 struct ValueTransform {
-  ValueTransform(Transform &&transform, ErrTransform &&err_transform = {})
-      : _transform(std::move(transform)), _err_transform(std::move(err_transform)) {}
+  ValueTransform(ValueT &&t) : _value_t(std::move(t)) {}
+
+  ValueTransform(ValueT &&value_t, StreamT &&stream_t, ErrorT &&error_t)
+      : _value_t(std::move(value_t)),
+        _stream_t(std::move(stream_t)),
+        _error_t(std::move(error_t)) {}
 
   auto operator()(const ValueOrStream auto &...v) -> Operand {
-    if (auto result = eval(v...)) {
+    if (auto result = eval1(v...)) {
       return std::visit([](auto value) -> Operand { return value; }, *result);
     } else {
       return [result](auto &) { return result; };
     }
   }
-  auto operator()(const auto &...v) -> Operand { return eval(v...); }
+  auto operator()(const auto &...v) -> Operand { return eval2(v...); }
 
  private:
-  auto eval(const ValueOrStream auto &...) -> ClosureValue::result_type {
+  auto eval1(const Stream &v) -> ClosureValue::result_type { return _stream_t(v); }
+  auto eval1(const IsValue auto &v) { return _value_t(v); }
+  auto eval1(const IsValue auto &lhs, const IsValue auto &rhs) { return _value_t(lhs, rhs); }
+  auto eval1(const ValueOrStream auto &...) -> ClosureValue::result_type {
     return std::unexpected(Error::kInvalidOp);
   }
 
-  auto eval(const IsValue auto &v) { return _transform(v); }
-  auto eval(const ClosureValue &v) -> ClosureValue {
+  auto eval2(const ClosureValue &v) -> ClosureValue {
     return [op = *this, v](const Closure &closure) mutable {
       return v(closure).and_then(
-          [&](auto v) { return std::visit([&](auto v) { return op.eval(v); }, v); });
+          [&](auto v) { return std::visit([&](auto v) { return op.eval1(v); }, v); });
     };
   }
 
-  auto eval(const IsValue auto &lhs, const IsValue auto &rhs) { return _transform(lhs, rhs); }
-
-  auto eval(const ClosureValue &lhs, const IsValue auto &rhs) -> ClosureValue {
+  auto eval2(const ClosureValue &lhs, const IsValue auto &rhs) -> ClosureValue {
     return [lhs, op = *this, rhs](const Closure &closure) mutable {
       return lhs(closure)
           .and_then([&](auto lhs) {
-            return std::visit([&](ValueOrStream auto lhs) { return op.eval(lhs, rhs); }, lhs);
+            return std::visit([&](ValueOrStream auto lhs) { return op.eval1(lhs, rhs); }, lhs);
           })
-          .or_else([&](Error err) { return op._err_transform(err, rhs); });
+          .or_else([&](Error err) { return op._error_t(err, rhs); });
     };
   }
-  auto eval(const IsValue auto &lhs, const ClosureValue &rhs) -> ClosureValue {
+  auto eval2(const IsValue auto &lhs, const ClosureValue &rhs) -> ClosureValue {
     return [lhs, op = *this, rhs](const Closure &closure) mutable {
       return rhs(closure).and_then(
-          [&](auto rhs) { return std::visit([&](auto rhs) { return op.eval(lhs, rhs); }, rhs); });
+          [&](auto rhs) { return std::visit([&](auto &rhs) { return op.eval1(lhs, rhs); }, rhs); });
     };
   }
-  auto eval(const ClosureValue &lhs, const ClosureValue &rhs) -> ClosureValue {
+  auto eval2(const ClosureValue &lhs, const ClosureValue &rhs) -> ClosureValue {
     return [lhs, op = *this, rhs](const Closure &closure) mutable {
       return rhs(closure).and_then([&](auto rhs) {
-        return std::visit([&](auto rhs) { return op.eval(lhs, rhs)(closure); }, rhs);
+        return std::visit([&](auto rhs) { return op.eval2(lhs, rhs)(closure); }, rhs);
       });
     };
   }
-  auto eval(const auto &...) -> ClosureValue {
+  auto eval2(const auto &...) -> ClosureValue {
     return [](auto &) { return std::unexpected(Error::kInvalidOp); };
   }
 
-  Transform _transform;
-
- public:
-  ErrTransform _err_transform;
+  ValueT _value_t;
+  StreamT _stream_t = {};
+  ErrorT _error_t = {};
 };
 
 struct OperandOp {
@@ -133,6 +140,10 @@ struct OperandOp {
           if (op == "-") return ValueOp<std::negate<>>()(v);
           if (op == "!") return ValueOp<std::logical_not<>, bool>()(v);
           if (op == "..") return ValueOp<Iota>()(v);
+          return std::unexpected(Error::kInvalidOp);
+        },
+        [&](const Stream &s) -> ClosureValue::result_type {
+          if (op == "&") return Background()(s);
           return std::unexpected(Error::kInvalidOp);
         },
         [](auto err, auto &) { return std::unexpected(err); })(v);
@@ -158,6 +169,7 @@ struct OperandOp {
           if (op == "..") return ValueOp<Iota>()(v...);
           return std::unexpected(Error::kInvalidOp);
         },
+        {},
         [op = op](Error err, const IsValue auto &rhs) -> ClosureValue::result_type {
           if (op == "?:" && err == Error::kCoalesceSkip) {
             return rhs;

@@ -31,9 +31,6 @@ using Value = std::variant<google::protobuf::BytesValue,  // Bytes
                            google::protobuf::Value,       // Primitives & JSON
                            google::protobuf::Any>;        // Strong types
 
-template <typename T>
-concept IsValue = InVariant<Value, T>;
-
 enum class Error : int {
   kSuccess = 0,
   kUnknown = 1,

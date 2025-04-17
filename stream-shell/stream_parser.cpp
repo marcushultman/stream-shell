@@ -155,6 +155,7 @@ auto unaryLeftOp(bool unary, std::ranges::range auto op) {
 }
 
 auto unaryRightOp(bool unary, std::ranges::range auto op) {
+  if ((op == "&") && unary) return 1;
   if ((op == "..") && unary) return 7;
   return 0;
 }
@@ -177,6 +178,7 @@ auto rightAssociative(std::ranges::range auto op) {
 
 auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
   if (auto p = unaryLeftOp(lhs.operands.empty(), op)) return p;
+  if (auto p = unaryRightOp(true, op)) return p;
   if (auto p = binaryOp(op)) return p;
   if (op == ":" || op == "->") return 1;
   if (op == ";") return 2;
