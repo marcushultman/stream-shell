@@ -2,6 +2,7 @@ cc_library(
   name = "stream-shell-lib",
   hdrs = [
     "builtins/add.h",
+    "builtins/now.h",
     "builtin.h",
     "closure.h",
     "stream_parser.h",
