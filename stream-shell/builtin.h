@@ -11,7 +11,8 @@
 using namespace std::string_view_literals;
 
 // todo: pass args here and return Operand (since builtins may fail)
-inline std::optional<Stream> runBuiltin(ToStream &&to_stream,
+inline std::optional<Stream> runBuiltin(Env &env,
+                                        const Closure &closure,
                                         auto &&input,
                                         Word cmd,
                                         ranges::bidirectional_range auto args) {
@@ -22,9 +23,9 @@ inline std::optional<Stream> runBuiltin(ToStream &&to_stream,
              return val;
            });
   } else if (ranges::starts_with(cmd.value, "add"sv)) {
-    return add(to_stream, std::forward<decltype(input)>(input), args);
+    return add(ToStream(env, closure), std::forward<decltype(input)>(input), args);
   } else if (ranges::starts_with(cmd.value, "now"sv)) {
-    return now();
+    return now(env);
   }
   if (cmd.value == "exit") {
     return ranges::views::generate([] { return exit(0), Value(); });

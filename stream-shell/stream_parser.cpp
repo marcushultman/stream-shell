@@ -71,7 +71,8 @@ struct CommandBuilder {
                  }
 
                  if (auto cmd = frontCommand(closure, operands)) {
-                   if (auto stream = runBuiltin(ToStream(env, closure),
+                   if (auto stream = runBuiltin(env,
+                                                closure,
                                                 std::forward<decltype(input)>(input),
                                                 *cmd,
                                                 operands | ranges::views::drop(1))) {

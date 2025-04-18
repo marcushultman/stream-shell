@@ -67,6 +67,7 @@ struct Env {
   virtual ~Env() = default;
   virtual StreamFactory getEnv(StreamRef) const = 0;
   virtual void setEnv(StreamRef, StreamFactory) = 0;
+  virtual bool sleepUntil(std::chrono::system_clock::time_point) = 0;
 };
 
 struct Print {

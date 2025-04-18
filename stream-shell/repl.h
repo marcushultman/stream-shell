@@ -1,5 +1,7 @@
 #pragma once
 
+#include <condition_variable>
+#include <csignal>
 #include <fstream>
 #include <range/v3/all.hpp>
 #include <unistd.h>
@@ -34,6 +36,17 @@ struct ProdEnv final : Env {
     // todo: setenv?
     _cache[ref] = std::move(stream);
   }
+  bool sleepUntil(std::chrono::system_clock::time_point t) override {
+    std::unique_lock lock(_mutex);
+    _stop = false;
+    for (; !_stop && _cv.wait_until(lock, t) != std::cv_status::timeout;);
+    return !std::exchange(_stop, false);
+  }
+
+  void interrupt() {
+    std::unique_lock lock(_mutex);
+    _stop = true;
+  }
 
  private:
   void load(std::string path) {
@@ -50,13 +63,21 @@ struct ProdEnv final : Env {
   std::string _config;
   std::unique_ptr<StreamParser> _parser = makeStreamParser(*this);
   mutable std::map<StreamRef, StreamFactory, std::less<>> _cache;
+  std::condition_variable _cv;
+  std::mutex _mutex;
+  bool _stop = false;
 };
+
+static ProdEnv *s_env = nullptr;
 
 inline void repl(Prompt prompt) {
   ProdEnv env;
+  s_env = &env;
   auto parser = makeStreamParser(env);
 
   for (const char *line; (line = prompt("stream-shell v0.1 🚀> "));) {
+    std::signal(SIGINT, [](int) { s_env->interrupt(); });
     printStream(parser->parse(tokenize(std::string_view(line))), [&](auto s) { return prompt(s); });
+    std::signal(SIGINT, nullptr);
   }
 }
