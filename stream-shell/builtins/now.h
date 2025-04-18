@@ -7,13 +7,13 @@
 using namespace std::chrono_literals;
 
 inline Stream now(Env &env) {
-  auto start = std::chrono::system_clock::now();
-  return ranges::views::iota(0) |
-         ranges::views::transform([start](auto i) { return start + i * 1s; }) |
-         ranges::views::take_while([&env](auto t) { return env.sleepUntil(t); }) |
-         ranges::views::transform([](auto t) {
+  return ranges::views::iota(0) | ranges::views::transform([](auto i) { return i * 1s; }) |
+         ranges::views::take_while([&env, start = std::chrono::steady_clock::now()](auto d) {
+           return env.sleepUntil(start + d);
+         }) |
+         ranges::views::transform([start = std::chrono::system_clock::now()](auto d) {
            google::protobuf::Value val;
-           val.set_string_value(std::format("{:%FT%TZ}", t));
+           val.set_string_value(std::format("{:%FT%TZ}", start + d));
            return val;
          });
 }

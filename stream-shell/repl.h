@@ -36,7 +36,7 @@ struct ProdEnv final : Env {
     // todo: setenv?
     _cache[ref] = std::move(stream);
   }
-  bool sleepUntil(std::chrono::system_clock::time_point t) override {
+  bool sleepUntil(std::chrono::steady_clock::time_point t) override {
     std::unique_lock lock(_mutex);
     _stop = false;
     for (; !_stop && _cv.wait_until(lock, t) != std::cv_status::timeout;);
