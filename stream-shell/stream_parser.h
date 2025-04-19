@@ -43,6 +43,7 @@ enum class Error : int {
   kMissingOperand,
   kMissingVariable,
 
+  kExecError,
   kExecPipeError,
   kExecForkError,
 

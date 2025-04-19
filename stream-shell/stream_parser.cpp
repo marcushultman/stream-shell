@@ -1,6 +1,5 @@
 #include "stream_parser.h"
 
-#include <charconv>
 #include <expected>
 #include <functional>
 #include <stack>
@@ -134,6 +133,7 @@ struct CommandBuilder {
   }
 
   static Stream runChildProcess(Env &env, const Closure &closure, ranges::range auto &&operands) {
+#if !__EMSCRIPTEN__
     std::array<int, 2> out_pipe, err_pipe;
 
     if (pipe(out_pipe.data()) == -1 || pipe(err_pipe.data()) == -1) {
@@ -178,6 +178,9 @@ struct CommandBuilder {
           1);
     }
     return ranges::views::single(std::unexpected(Error::kExecForkError));
+#else
+    return ranges::views::single(std::unexpected(Error::kExecError));
+#endif
   }
 };
 
