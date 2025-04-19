@@ -19,26 +19,29 @@ struct Tokenizer {
   struct String {
     char type = 0;
   };
-  using Type = std::variant<Init, Word, Operator, Number, String>;
+  struct StreamRef {};
+  using Type = std::variant<Init, Word, Operator, Number, String, StreamRef>;
 
   bool operator()(const Init &, char c) {
     if (ranges::contains("\"'`"sv, c)) {
       _type = String(c);
-      return false;
     } else if (ranges::contains("!&%+-*/<=>|"sv, c)) {
       _type = Operator(c);
-      return false;
     } else if (std::isdigit(c)) {
       _type = Number(c == '0' ? Number::kUnknown : Number::kDec);
-      return false;
+    } else if (c == '$') {
+      _type = StreamRef();
+    } else if (std::isspace(c) || ranges::contains("(){}[]\"'`;:,"sv, c)) {
+      _type = Init();
+    } else {
+      _type = Word();
     }
-    return (*this)(Word(), c) && false;
+    return false;
   }
 
   bool operator()(const Word &, char c) {
-    if (ranges::contains("(){}[]\"'`;:<=>,"sv, c) || std::isspace(c)) {
-      _type = Init();
-      return false;
+    if (std::isspace(c) || ranges::contains("(){}[]\"'`"sv, c)) {
+      return (*this)(Init(), c);
     }
     _type = Word();
     return true;
@@ -81,14 +84,21 @@ struct Tokenizer {
     }
     return true;
   }
+  bool operator()(StreamRef &, char c) {
+    if (!std::isalnum(c) && !ranges::contains("-_"sv, c)) {
+      return (*this)(Init(), c);
+    }
+    _type = StreamRef();
+    return true;
+  }
 
  public:
   bool operator()(auto t1, auto t2) {
-    auto [a, i] = t1;
+    auto [i, a] = t1;
     if (!i) {
       (*this)(Init(), a);
     }
-    auto [b, _] = t2;
+    auto [_, b] = t2;
     return std::visit(*this, _type, std::variant<char>{b});
   }
 
@@ -96,33 +106,33 @@ struct Tokenizer {
   Type _type;
 };
 
+using Token = ranges::any_view<const char, ranges::category::bidirectional>;
+
 }  // namespace
 
-auto tokenize(ranges::any_view<const char, ranges::category::bidirectional> input)
-    -> ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>> {
+auto tokenize(Token input) -> ranges::any_view<Token> {
   auto tokenizer = std::make_shared<Tokenizer>();
-  return ranges::views::zip(input, ranges::views::iota(0)) |
+  return ranges::views::enumerate(input) |
          ranges::views::chunk_by([tokenizer](auto... t) { return (*tokenizer)(t...); }) |
-         ranges::views::transform([](auto &&t) { return t | ranges::views::keys; }) |
-         ranges::views::transform([](ranges::bidirectional_range auto &&s) {
-           return trim(std::forward<decltype(s)>(s));
+         ranges::views::transform([](auto &&t) { return t | ranges::views::values; }) |
+         ranges::views::transform([](auto &&s) { return trim(std::forward<decltype(s)>(s)); }) |
+         ranges::views::for_each([](auto &&s) {
+           auto head = Token(s), tail = Token();
+           if (!ranges::empty(s) && ranges::back(s) == ';') {
+             head = trim(s, 0, 1);
+             tail = trim(s, ranges::distance(s) - 1);
+           }
+           return ranges::views::concat(ranges::yield(head), ranges::yield(tail));
          }) |
-         ranges::views::for_each(
-             [](ranges::bidirectional_range auto &&s)
-                 -> ranges::any_view<
-                     ranges::any_view<const char, ranges::category::bidirectional>> {
-               auto [db, de] = ranges::search(s, ".."sv);
-               if (db == ranges::end(s)) {
-                 return ranges::yield(s);
-               }
-               ranges::any_view<const char, ranges::category::bidirectional> a =
-                   ranges::subrange<decltype(db), decltype(db)>(ranges::begin(s), db);
-               ranges::any_view<const char, ranges::category::bidirectional> b = ".."sv;
-               ranges::any_view<const char, ranges::category::bidirectional> c =
-                   ranges::subrange<decltype(db), decltype(db)>(de, ranges::end(s));
-
-               return ranges::views::concat(
-                   ranges::views::single(a), ranges::views::single(b), ranges::views::single(c));
-             }) |
+         ranges::views::for_each([](auto &&s) -> ranges::any_view<Token> {
+           auto [db, de] = ranges::search(s, ".."sv);
+           if (db == ranges::end(s)) {
+             return ranges::yield(s);
+           }
+           return ranges::views::concat(
+               ranges::yield(Token(ranges::make_subrange(ranges::begin(s), db))),
+               ranges::yield(".."sv),
+               ranges::yield(Token(ranges::make_subrange(de, ranges::end(s)))));
+         }) |
          ranges::views::filter([](auto &&s) { return !ranges::empty(s); });
 }

@@ -140,20 +140,21 @@ struct CommandBuilder {
       return ranges::views::single(std::unexpected(Error::kExecPipeError));
     }
 
+    auto args = operands | ranges::views::transform([&](auto &operand) {
+                  return std::visit(ToString(env, closure), operand);
+                });
+
+    if (auto err = ranges::find_if(args, std::logical_not<>()); err != args.end()) {
+      return ranges::views::single(std::unexpected((*err).error()));
+    }
+
     if (auto pid = fork(); pid == 0) {
       close(out_pipe[0]);
       close(err_pipe[0]);
       dup2(out_pipe[1], STDOUT_FILENO);
       dup2(err_pipe[1], STDERR_FILENO);
 
-      auto args = operands | ranges::views::transform([&](auto &operand) {
-                    return std::visit(ToString(env, closure), operand);
-                  });
-
-      if (auto err = ranges::find_if(args, std::logical_not<>()); err != args.end()) {
-        return ranges::views::single(std::unexpected((*err).error()));
-      }
-      exec(args | ranges::views::transform([](auto &&result) { return std::move(*result); }));
+      exec(args | ranges::views::transform([](auto &&r) { return std::move(*r); }));
       exit(1);
 
     } else if (pid > 0) {

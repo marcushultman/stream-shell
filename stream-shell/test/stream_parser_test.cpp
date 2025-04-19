@@ -36,7 +36,7 @@ auto &operator<<(std::ostream &os, const Result<::Value> &value) {
 
 }  // namespace google::protobuf
 
-BOOST_AUTO_TEST_SUITE(strean_parser_test)
+BOOST_AUTO_TEST_SUITE(stream_parser_test)
 
 google::protobuf::Value makeValue(bool b) {
   google::protobuf::Value v;
@@ -79,6 +79,7 @@ std::vector<Value> makeValues(Args &&...args) {
 struct TestEnv : Env {
   StreamFactory getEnv(StreamRef) const override { return {}; }
   void setEnv(StreamRef, StreamFactory) override {}
+  bool sleepUntil(std::chrono::steady_clock::time_point) override {}
 };
 
 TestEnv env;

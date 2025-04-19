@@ -8,7 +8,7 @@ inline auto trim(ranges::bidirectional_range auto str) {
          ranges::views::reverse | ranges::views::drop_while(is_space) | ranges::views::reverse;
 }
 
-inline auto trim(ranges::bidirectional_range auto str, size_t leading, size_t trailing) {
+inline auto trim(ranges::bidirectional_range auto str, size_t leading, size_t trailing = 0) {
   return std::forward<decltype(str)>(str) | ranges::views::drop(leading) | ranges::views::reverse |
          ranges::views::drop(trailing) | ranges::views::reverse;
 }

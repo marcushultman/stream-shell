@@ -37,6 +37,9 @@ BOOST_AUTO_TEST_CASE(tokenize_command) {
   BOOST_TEST(tokens("my-script.stsh") == Tokens({"my-script.stsh"}), kEach);
   BOOST_TEST(tokens("cd ~/some/dir") == Tokens({"cd", "~/some/dir"}), kEach);
   BOOST_TEST(tokens("foo -- 1 2") == Tokens({"foo", "--", "1", "2"}), kEach);
+  BOOST_TEST(tokens("curl https://github.com/marcushultman/stream-shell/releases") ==
+                 Tokens({"curl", "https://github.com/marcushultman/stream-shell/releases"}),
+             kEach);
 }
 
 BOOST_AUTO_TEST_CASE(tokenize_stream_variable) {
@@ -91,41 +94,40 @@ BOOST_AUTO_TEST_CASE(tokenize_string) {
 }
 
 BOOST_AUTO_TEST_CASE(tokenize_assign) {
-  BOOST_TEST(tokens("FOO = 1") == Tokens({"FOO", "=", "1"}), kEach);
-  BOOST_TEST(tokens("FOO =1") == Tokens({"FOO", "=", "1"}), kEach);
-  BOOST_TEST(tokens("FOO= 1") == Tokens({"FOO", "=", "1"}), kEach);
-  BOOST_TEST(tokens("FOO=1") == Tokens({"FOO", "=", "1"}), kEach);
+  BOOST_TEST(tokens("$FOO = 1") == Tokens({"$FOO", "=", "1"}), kEach);
+  BOOST_TEST(tokens("$FOO =1") == Tokens({"$FOO", "=", "1"}), kEach);
+  BOOST_TEST(tokens("$FOO= 1") == Tokens({"$FOO", "=", "1"}), kEach);
+  BOOST_TEST(tokens("$FOO=1") == Tokens({"$FOO", "=", "1"}), kEach);
 }
 
 BOOST_AUTO_TEST_CASE(tokenize_complex) {
-  BOOST_TEST(
-      tokens(
-          R"cmd(1 2 3 | 1..3 | user.proto.Person { name: "Albert" } | 1 (-2 + 3) | git add (ls src) | { i -> i * 2 i..5 }; now :[-1]; repeat "na" | tail 3 ; "hello" > hello; 1 2 3 > lines.log; now &; $HOME ; foo<bar )cmd") ==
-          Tokens({"1",          "2",      "3",
-                  "|",          "1",      "..",
-                  "3",          "|",      "user.proto.Person",
-                  "{",          "name",   ":",
-                  "\"Albert\"", "}",      "|",
-                  "1",          "(",      "-",
-                  "2",          "+",      "3",
-                  ")",          "|",      "git",
-                  "add",        "(",      "ls",
-                  "src",        ")",      "|",
-                  "{",          "i",      "->",
-                  "i",          "*",      "2",
-                  "i",          "..",     "5",
-                  "}",          ";",      "now",
-                  ":",          "[",      "-",
-                  "1",          "]",      ";",
-                  "repeat",     "\"na\"", "|",
-                  "tail",       "3",      ";",
-                  "\"hello\"",  ">",      "hello",
-                  ";",          "1",      "2",
-                  "3",          ">",      "lines.log",
-                  ";",          "now",    "&",
-                  ";",          "$HOME",  ";",
-                  "foo",        "<",      "bar"}),
-      kEach);
+  auto t = tokens(
+      R"cmd(1 2 3 | 1..3 | user.proto.Person { name: "Albert" } | 1 (-2 + 3) | git add (ls src) | { i -> i * 2 i..5 }; now :[-1]; repeat "na" | tail 3 ; "hello" > hello; 1 2 3 > lines.log; now &; $HOME ; foo <bar )cmd");
+  BOOST_TEST(t == Tokens({"1",      "2",         "3",
+                          "|",      "1",         "..",
+                          "3",      "|",         "user.proto.Person",
+                          "{",      "name:",     "\"Albert\"",
+                          "}",      "|",         "1",
+                          "(",      "-",         "2",
+                          "+",      "3",         ")",
+                          "|",      "git",       "add",
+                          "(",      "ls",        "src",
+                          ")",      "|",         "{",
+                          "i",      "->",        "i",
+                          "*",      "2",         "i",
+                          "..",     "5",         "}",
+                          ";",      "now",       ":",
+                          "[",      "-",         "1",
+                          "]",      ";",         "repeat",
+                          "\"na\"", "|",         "tail",
+                          "3",      ";",         "\"hello\"",
+                          ">",      "hello",     ";",
+                          "1",      "2",         "3",
+                          ">",      "lines.log", ";",
+                          "now",    "&",         ";",
+                          "$HOME",  ";",         "foo",
+                          "<",      "bar"}),
+             kEach);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
