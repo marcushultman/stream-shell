@@ -43,6 +43,9 @@ enum class Error : int {
   kMissingOperand,
   kMissingVariable,
 
+  kExecPipeError,
+  kExecForkError,
+
   kInvalidNumberOp,
   kInvalidBoolOp,
   kInvalidStringOp,

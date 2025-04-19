@@ -11,6 +11,7 @@ cc_library(
     "operand.h",
     "repl.h",
     "to_stream.h",
+    "to_string.h",
     "tokenize.h",
     "value_op.h",
     "variant_ext.h",
