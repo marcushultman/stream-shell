@@ -36,7 +36,7 @@ inline std::string readAll(int fd) {
   for (ssize_t n; (n = read(fd, buffer.data(), buffer.size())) > 0;) {
     all.write(buffer.data(), n);
   }
-  return all.str();
+  return std::move(all).str();
 }
 
 inline auto exec(std::ranges::range auto args) {
