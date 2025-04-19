@@ -131,7 +131,7 @@ auto tokenize(Token input) -> ranges::any_view<Token> {
            }
            return ranges::views::concat(
                ranges::yield(Token(ranges::make_subrange(ranges::begin(s), db))),
-               ranges::yield(".."sv),
+               ranges::yield(Token(ranges::make_subrange(db, de))),
                ranges::yield(Token(ranges::make_subrange(de, ranges::end(s)))));
          }) |
          ranges::views::filter([](auto &&s) { return !ranges::empty(s); });

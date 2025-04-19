@@ -54,13 +54,15 @@ struct ProdEnv final : Env {
     if (!config.is_open()) {
       return;
     }
-    std::stringstream buffer;
-    buffer << config.rdbuf();
-    _config = buffer.str();
-    (void)_parser->parse(tokenize(_config));
+    _config = (std::stringstream() << config.rdbuf()).view() | ranges::views::split('\n') |
+              ranges::views::filter([](auto &&s) { return !ranges::empty(s); }) |
+              ranges::to<std::vector<std::string>>;
+    for (auto &line : _config) {
+      (void)_parser->parse(tokenize(line));
+    }
   }
 
-  std::string _config;
+  std::vector<std::string> _config;
   std::unique_ptr<StreamParser> _parser = makeStreamParser(*this);
   mutable std::map<StreamRef, StreamFactory, std::less<>> _cache;
   std::condition_variable _cv;

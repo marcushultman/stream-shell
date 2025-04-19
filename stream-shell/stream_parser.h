@@ -7,10 +7,10 @@
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
-#include "variant_ext.h"
 
 //
 
+// todo: ranges::views::split is forward. std is bidirectional, but join_with is not implemented
 using Token = ranges::any_view<const char, ranges::category::forward>;
 
 inline auto operator<(Token lhs, Token rhs) {
