@@ -313,24 +313,6 @@ auto toJSON(Env &env, std::vector<Operand> &&operands) {
   };
 }
 
-auto lookupField(auto &value, auto &path) -> ClosureValue::result_type {
-  if (path.size() > 1) {
-    if (auto *json = std::get_if<google::protobuf::Value>(&value)) {
-      return ranges::fold_left(
-          path | ranges::views::drop(1), *json, [](const auto &json, auto &field) {
-            if (json.has_struct_value()) {
-              auto &fields = json.struct_value().fields();
-              if (auto it = fields.find(field); it != fields.end()) {
-                return it->second;
-              }
-            }
-            return json;
-          });
-    }
-  }
-  return std::visit([](auto &value) -> ClosureValue::result_type { return value; }, value);
-}
-
 //
 
 struct StreamParserImpl final : StreamParser {
@@ -389,6 +371,39 @@ auto StreamParserImpl::parse(
       rhs.closure = lhs.closure;
       rhs.record_level = lhs.record_level;
 
+    } else if (token == ")") {
+      if (auto res = performOp([](const auto &op) { return op != "("; }); !res.has_value()) {
+        return errorStream(res.error());
+      }
+      ops.pop();
+      auto rhs = std::move(cmds.top());
+      cmds.pop();
+
+      // todo: build Value so that it can be used in ternary condition
+      cmds.top().operands.push_back(std::move(rhs).operand(env));
+
+    } else if (token == "}" && cmds.top().record_level == 0) {
+      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
+        return errorStream(res.error());
+      }
+      ops.pop();
+      auto rhs = std::move(cmds.top());
+      cmds.pop();
+
+      rhs.freeze_operands = true;
+      cmds.top() = std::move(rhs);
+
+    } else if (token == "}") {
+      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
+        return errorStream(res.error());
+      }
+      ops.pop();
+      auto rhs = std::move(cmds.top());
+      cmds.pop();
+
+      rhs.operands.push_back(Word{token});
+      cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
+
     } else if (cmds.top().freeze_operands) {
       return errorStream(Error::kMissingOperator);
 
@@ -408,17 +423,6 @@ auto StreamParserImpl::parse(
 
       rhs.closure = lhs.closure;
 
-    } else if (token == ")") {
-      if (auto res = performOp([](const auto &op) { return op != "("; }); !res.has_value()) {
-        return errorStream(res.error());
-      }
-      ops.pop();
-      auto rhs = std::move(cmds.top());
-      cmds.pop();
-
-      // todo: build Value so that it can be used in ternary condition
-      cmds.top().operands.push_back(std::move(rhs).operand(env));
-
     } else if (token == "{" && isClosure()) {
       // Produce the input to closure
       if (auto res = performOp([&](const auto &op) { return op != "{" && op != "("; });
@@ -433,17 +437,6 @@ auto StreamParserImpl::parse(
       rhs.input = std::move(lhs.input);
       rhs.closure = lhs.closure;
 
-    } else if (token == "}" && cmds.top().record_level == 0) {
-      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
-        return errorStream(res.error());
-      }
-      ops.pop();
-      auto rhs = std::move(cmds.top());
-      cmds.pop();
-
-      rhs.freeze_operands = true;
-      cmds.top() = std::move(rhs);
-
     } else if (token == "{") {
       ops.push(token);
       auto &lhs = cmds.top();
@@ -452,17 +445,6 @@ auto StreamParserImpl::parse(
       rhs.operands.push_back(Word{token});
       rhs.closure = lhs.closure;
       rhs.record_level = lhs.record_level + 1;
-
-    } else if (token == "}") {
-      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
-        return errorStream(res.error());
-      }
-      ops.pop();
-      auto rhs = std::move(cmds.top());
-      cmds.pop();
-
-      rhs.operands.push_back(Word{token});
-      cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
 
     } else {
       cmds.top().operands.push_back(toOperand(token));
@@ -517,12 +499,13 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
     return val;
   }
 
-  auto path = token | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
+  auto path = token | ranges::views::split('.');
 
   // todo: fix closure variable in record
-  if (auto it = closure.vars.find(Word{path[0]}); it != closure.vars.end()) {
-    return [value = it->second, path = std::move(path)](const Closure &closure) {
-      return lookupField(*value, path);
+  if (auto it = closure.vars.find(Word{ranges::front(path)}); it != closure.vars.end()) {
+    return [value = it->second, path = path | ranges::views::drop(1)](const auto &) {
+      return std::visit([](auto &&value) -> ClosureValue::result_type::value_type { return value; },
+                        lookupField(*value, path));
     };
   }
   return Word{token};

@@ -4,6 +4,7 @@
 #include <string_view>
 #include <range/v3/all.hpp>
 #include "builtins/add.h"
+#include "builtins/get.h"
 #include "builtins/now.h"
 #include "closure.h"
 #include "to_stream.h"
@@ -24,6 +25,8 @@ inline std::optional<Stream> runBuiltin(Env &env,
            });
   } else if (ranges::starts_with(cmd.value, "add"sv)) {
     return add(ToStream(env, closure), std::forward<decltype(input)>(input), args);
+  } else if (ranges::starts_with(cmd.value, "get"sv)) {
+    return get(ToStream(env, closure), std::forward<decltype(input)>(input), args);
   } else if (ranges::starts_with(cmd.value, "now"sv)) {
     return now(env);
   }
