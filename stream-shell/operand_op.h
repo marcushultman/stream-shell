@@ -36,12 +36,13 @@ inline bool isTruthy(const Stream &stream) {
 }
 
 struct TernaryCondition {
-  auto operator()(const IsValue auto &lhs, const IsValue auto &rhs) {
+  auto operator()(const auto &lhs, const auto &rhs) {
     return isTruthy(lhs) ? ClosureValue::result_type(rhs) : std::unexpected(Error::kCoalesceSkip);
   }
 };
+
 struct TernaryTruthy {
-  auto operator()(const IsValue auto &lhs, const IsValue auto &rhs) { return lhs; }
+  auto operator()(const auto &lhs, const auto &) { return lhs; }
 };
 
 struct Iota {
@@ -86,11 +87,7 @@ struct ValueTransform {
 
  private:
   auto eval1(const Stream &v) -> ClosureValue::result_type { return _stream_t(v); }
-  auto eval1(const IsValue auto &v) { return _value_t(v); }
-  auto eval1(const IsValue auto &lhs, const IsValue auto &rhs) { return _value_t(lhs, rhs); }
-  auto eval1(const ValueOrStream auto &...) -> ClosureValue::result_type {
-    return std::unexpected(Error::kInvalidOp);
-  }
+  auto eval1(const ValueOrStream auto &...v) -> ClosureValue::result_type { return _value_t(v...); }
 
   auto eval2(const ClosureValue &v) -> ClosureValue {
     return [op = *this, v](const Closure &closure) mutable {
@@ -150,7 +147,7 @@ struct OperandOp {
   }
   auto operator()(const auto &...v) const -> Operand {
     return ValueTransform(
-        [op = op](const IsValue auto &...v) -> ClosureValue::result_type {
+        [op = op](const auto &...v) -> ClosureValue::result_type {
           if (op == "||") return ValueOp<std::logical_or<>, bool>()(v...);
           if (op == "&&") return ValueOp<std::logical_and<>, bool>()(v...);
           if (op == "==") return ValueOp<std::equal_to<>, bool>()(v...);

@@ -207,13 +207,17 @@ auto unaryRightOp(bool unary, std::ranges::range auto op) {
 }
 
 auto binaryOp(std::ranges::range auto op) {
-  if (op == "?" || op == "?:") return 4;
   // if (op == "??") return ??;
   if (op == "||" || op == "&&") return 5;
   if (op == "==" || op == "!=") return 6;
   if (op == "<" || op == "<=" || op == ">" || op == ">=" || op == "..") return 7;
   if (op == "+" || op == "-") return 8;
   if (op == "*" || op == "/" || op == "%") return 9;
+  return 0;
+}
+
+auto ternaryOp(std::ranges::range auto op) {
+  if (op == "?") return 4;
   return 0;
 }
 
@@ -226,6 +230,7 @@ auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
   if (auto p = unaryLeftOp(lhs.operands.empty(), op)) return p;
   if (auto p = unaryRightOp(true, op)) return p;
   if (auto p = binaryOp(op)) return p;
+  if (auto p = ternaryOp(op)) return p;
   if (op == ":") return 1;
   if (op == ";") return 2;
   if (op == "=" || op == "|") return 3;
@@ -362,12 +367,9 @@ auto StreamParserImpl::parse(
 
   for (auto token : tokens) {
     if (isOperator(cmds.top(), token) && operatorCanBeApplied(token)) {
-      if (auto res = performOp([&, ternary = false](auto &op) mutable {
-            if (ternary) {
+      if (auto res = performOp([&](auto &op) mutable {
+            if (op == "?" && token == ":") {
               return false;
-            } else if (op == "?" && token == ":") {
-              token = "?:"sv;
-              return (ternary = true);
             }
             auto a = precedence(cmds.top(), op);
             auto b = precedence(cmds.top(), token);
@@ -376,7 +378,9 @@ auto StreamParserImpl::parse(
           !res.has_value()) {
         return errorStream(res.error());
       }
-      ops.push(token);
+      if (ops.empty() || !(ops.top() == "?" && token == ":")) {
+        ops.push(token);
+      }
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
@@ -577,6 +581,21 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
       lhs.operands.pop_back();
       lhs.operands.append_range(rhs.operands);
       cmds.push(std::move(lhs));
+
+    } else if (ternaryOp(ops.top())) {
+      auto condition = std::move(cmds.top());
+      cmds.pop();
+      if (condition.operands.empty()) {
+        return std::unexpected(Error::kMissingOperand);
+      }
+      condition.operands.back() = std::visit(
+          OperandOp(ops.top()), std::move(condition.operands.back()), std::move(lhs).operand(env));
+
+      rhs.operands[0] = std::visit(
+          OperandOp("?:"sv), std::move(condition.operands.back()), std::move(rhs.operands[0]));
+      condition.operands.pop_back();
+      condition.operands.append_range(rhs.operands);
+      cmds.push(std::move(condition));
 
     } else if (ops.top() == ":") {
       lhs.print_mode = [&] -> Print::Mode {
