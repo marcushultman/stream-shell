@@ -226,7 +226,7 @@ auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
   if (auto p = unaryLeftOp(lhs.operands.empty(), op)) return p;
   if (auto p = unaryRightOp(true, op)) return p;
   if (auto p = binaryOp(op)) return p;
-  if (op == ":" || op == "->") return 1;
+  if (op == ":") return 1;
   if (op == ";") return 2;
   if (op == "=" || op == "|") return 3;
   return 0;
@@ -383,20 +383,17 @@ auto StreamParserImpl::parse(
       rhs.closure = lhs.closure;
       rhs.record_level = lhs.record_level;
 
-      if (token == "->") {
-        if (lhs.operands.size() != 1) {
-          return errorStream(Error::kInvalidClosureSignature);
-        }
-        auto *closure_var = std::get_if<Word>(&lhs.operands[0]);
-        if (!closure_var) {
-          return errorStream(Error::kMissingVariable);
-        }
-        rhs.input_mode = lhs.input_mode;
-        rhs.input = lhs.input | setClosureVar(rhs.closure, *closure_var);
-      }
-
     } else if (cmds.top().freeze_operands) {
       return errorStream(Error::kMissingOperator);
+
+    } else if (token == "->") {
+      auto &lhs = cmds.top();
+      auto *closure_var = lhs.operands.size() == 1 ? std::get_if<Word>(&lhs.operands[0]) : nullptr;
+      if (!closure_var) {
+        return errorStream(Error::kInvalidClosureSignature);
+      }
+      lhs.input = std::move(lhs.input) | setClosureVar(lhs.closure, *closure_var);
+      lhs.operands.clear();
 
     } else if (token == "(") {
       ops.push(token);
@@ -516,8 +513,8 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
 
   auto path = token | ranges::views::split('.') | ranges::to<std::vector<std::string>>();
 
-  if (auto it = closure.vars.find(Word{path[0]});
-      it != closure.vars.end() && (ops.top() != "{" || cmds.top().record_level)) {
+  // todo: fix closure variable in record
+  if (auto it = closure.vars.find(Word{path[0]}); it != closure.vars.end()) {
     return [value = it->second, path = std::move(path)](const Closure &closure) {
       return lookupField(*value, path);
     };
@@ -590,9 +587,6 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
         return Print::Pull{.full = true};
       }();
       cmds.push(std::move(lhs));
-
-    } else if (ops.top() == "->") {
-      cmds.push(std::move(rhs));
 
     } else if (ops.top() == ";") {
       ranges::for_each(std::move(lhs).build(env), [](auto &&) {});

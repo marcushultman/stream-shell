@@ -44,7 +44,6 @@ enum class Error : int {
 
   kMissingOperator,
   kMissingOperand,
-  kMissingVariable,
 
   kExecError,
   kExecPipeError,
