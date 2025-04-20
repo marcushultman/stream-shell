@@ -340,11 +340,13 @@ struct StreamParserImpl final : StreamParser {
       -> PrintableStream override;
 
  private:
+  using OpPred = std::function<bool(Token)>;
+
   auto toOperand(ranges::bidirectional_range auto token) -> Operand;
   auto isClosure() -> bool;
   auto operatorCanBeApplied(std::ranges::range auto op) -> bool;
 
-  auto performOp(auto &&pred) -> Result<void>;
+  auto performOp(const OpPred &pred) -> Result<void>;
 
   Env &env;
   std::stack<CommandBuilder> cmds;
@@ -367,7 +369,7 @@ auto StreamParserImpl::parse(
 
   for (auto token : tokens) {
     if (isOperator(cmds.top(), token) && operatorCanBeApplied(token)) {
-      if (auto res = performOp([&](auto &op) mutable {
+      if (auto res = performOp([&](const auto &op) mutable {
             if (op == "?" && token == ":") {
               return false;
             }
@@ -407,7 +409,7 @@ auto StreamParserImpl::parse(
       rhs.closure = lhs.closure;
 
     } else if (token == ")") {
-      if (auto res = performOp([](auto &op) { return op != "("; }); !res.has_value()) {
+      if (auto res = performOp([](const auto &op) { return op != "("; }); !res.has_value()) {
         return errorStream(res.error());
       }
       ops.pop();
@@ -419,7 +421,7 @@ auto StreamParserImpl::parse(
 
     } else if (token == "{" && isClosure()) {
       // Produce the input to closure
-      if (auto res = performOp([&](auto &op) { return op != "{" && op != "("; });
+      if (auto res = performOp([&](const auto &op) { return op != "{" && op != "("; });
           !res.has_value()) {
         return errorStream(res.error());
       }
@@ -432,7 +434,7 @@ auto StreamParserImpl::parse(
       rhs.closure = lhs.closure;
 
     } else if (token == "}" && cmds.top().record_level == 0) {
-      if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
+      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
         return errorStream(res.error());
       }
       ops.pop();
@@ -452,7 +454,7 @@ auto StreamParserImpl::parse(
       rhs.record_level = lhs.record_level + 1;
 
     } else if (token == "}") {
-      if (auto res = performOp([&](auto &op) { return op != "{"; }); !res.has_value()) {
+      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
         return errorStream(res.error());
       }
       ops.pop();
@@ -467,7 +469,7 @@ auto StreamParserImpl::parse(
     }
   }
 
-  if (auto res = performOp([&](auto &) { return true; }); !res.has_value()) {
+  if (auto res = performOp([&](const auto &) { return true; }); !res.has_value()) {
     return errorStream(res.error());
   }
   if (cmds.size() != 1) {
@@ -538,7 +540,7 @@ auto StreamParserImpl::operatorCanBeApplied(std::ranges::range auto op) -> bool 
   return true;
 }
 
-auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
+auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
   while (!ops.empty() && pred(ops.top())) {
     if (cmds.size() < 2) {
       return std::unexpected(Error::kMissingOperand);
@@ -551,7 +553,8 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
     if (auto *file = isFilePipe(ops.top(), rhs)) {
       ops.pop();
       cmds.push(std::move(lhs));
-      if (auto result = performOp(pred); !result) {
+      if (auto result = performOp([&](const auto &op) { return precedence(cmds.top(), op) >= 1; });
+          !result) {
         return result;
       }
       ops.emplace();
