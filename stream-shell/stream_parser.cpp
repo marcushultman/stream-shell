@@ -187,7 +187,7 @@ struct CommandBuilder {
 //
 
 Word *isFilePipe(auto op, CommandBuilder &rhs) {
-  return op == ">" && rhs.closure.vars.empty() && rhs.operands.size() == 1
+  return op == ">" && rhs.record_level == 0 && rhs.closure.vars.empty() && rhs.operands.size() == 1
              ? std::get_if<Word>(&rhs.operands[0])
              : nullptr;
 }
