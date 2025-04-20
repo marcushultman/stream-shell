@@ -1,5 +1,6 @@
 #include "stream_printer.h"
 
+#include <fstream>
 #include <iostream>
 #include <string_view>
 #include <google/protobuf/any.pb.h>
@@ -62,6 +63,22 @@ struct REPLPrinter final : Printer {
   const Prompt &_prompt;
 };
 
+struct FilePrinter final : Printer {
+  FilePrinter(std::string filename) : _filename{std::move(filename)}, _file{_filename} {}
+
+  bool print(size_t i, std::string_view value) override {
+    if (!_file.is_open()) {
+      std::cerr << "Failed to open file: " << _filename << std::endl;
+      return false;
+    }
+    _file.write(value.data(), value.size());
+    return true;
+  }
+
+  std::string _filename;
+  std::ofstream _file;
+};
+
 struct ToJSON {
   auto operator()(const auto &value) {
     scratch.clear();
@@ -82,7 +99,9 @@ auto printStream(Stream &&stream,
   ToJSON to_json;
   std::unique_ptr<Printer> printer;
 
-  if (auto slice = std::get_if<Print::Slice>(&mode)) {
+  if (auto file = std::get_if<Print::WriteFile>(&mode)) {
+    printer = std::make_unique<FilePrinter>(file->filename | ranges::to<std::string>);
+  } else if (auto slice = std::get_if<Print::Slice>(&mode)) {
     printer = std::make_unique<SlicePrinter>(slice->window);
   } else {
     printer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full, prompt);

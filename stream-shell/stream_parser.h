@@ -17,6 +17,9 @@ inline auto operator<(Token lhs, Token rhs) {
   return ranges::lexicographical_compare(lhs, rhs);
 }
 
+inline auto operator==(std::ranges::range auto lhs, std::ranges::range auto rhs) {
+  return ranges::equal(lhs, rhs);
+}
 inline auto operator==(std::ranges::range auto lhs, const char *rhs) {
   return ranges::equal(lhs, std::string_view(rhs));
 }
@@ -77,11 +80,17 @@ struct Env {
 struct Print {
   struct Pull {
     bool full = false;
+    bool operator==(const Pull &) const = default;
   };
   struct Slice {
     size_t window = 0;
+    bool operator==(const Slice &) const = default;
   };
-  using Mode = std::variant<Pull, Slice>;
+  struct WriteFile {
+    ranges::any_view<const char, ranges::category::forward> filename;
+    bool operator==(const WriteFile &) const = default;
+  };
+  using Mode = std::variant<Pull, Slice, WriteFile>;
 };
 
 using PrintableStream = std::pair<Stream, Print::Mode>;

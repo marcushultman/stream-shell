@@ -186,6 +186,14 @@ struct CommandBuilder {
 
 //
 
+Word *isFilePipe(auto op, CommandBuilder &rhs) {
+  return op == ">" && rhs.closure.vars.empty() && rhs.operands.size() == 1
+             ? std::get_if<Word>(&rhs.operands[0])
+             : nullptr;
+}
+
+//
+
 auto unaryLeftOp(bool unary, std::ranges::range auto op) {
   if ((op == "+" || op == "-") && unary) return 10;
   if (op == "!") return 10;
@@ -539,7 +547,16 @@ auto StreamParserImpl::performOp(auto &&pred) -> Result<void> {
     auto lhs = std::move(cmds.top());
     cmds.pop();
 
-    if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
+    if (auto *file = isFilePipe(ops.top(), rhs)) {
+      ops.pop();
+      cmds.push(std::move(lhs));
+      if (auto result = performOp(pred); !result) {
+        return result;
+      }
+      ops.emplace();
+      cmds.top().print_mode = Print::WriteFile{file->value};
+
+    } else if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
       if (rhs.operands.empty()) {
         return std::unexpected(Error::kMissingOperand);
       }

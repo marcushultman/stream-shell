@@ -36,6 +36,21 @@ auto &operator<<(std::ostream &os, const Result<::Value> &value) {
 
 }  // namespace google::protobuf
 
+auto &operator<<(std::ostream &os, const Print::Pull &mode) {
+  return os << "Pull { full=" << mode.full << " }";
+}
+auto &operator<<(std::ostream &os, const Print::Slice &mode) {
+  return os << "Slice { window=" << mode.window << " }";
+}
+auto &operator<<(std::ostream &os, const Print::WriteFile &mode) {
+  return os << "WriteFile { filename="
+            << (decltype(Print::WriteFile::filename)(mode.filename) | ranges::to<std::string>)
+            << " }";
+}
+auto &operator<<(std::ostream &os, const Print::Mode &mode) {
+  return std::visit([&](const auto &mode) -> auto & { return os << mode; }, mode);
+}
+
 BOOST_AUTO_TEST_SUITE(stream_parser_test)
 
 google::protobuf::Value makeValue(bool b) {
@@ -79,14 +94,14 @@ std::vector<Value> makeValues(Args &&...args) {
 struct TestEnv : Env {
   StreamFactory getEnv(StreamRef) const override { return {}; }
   void setEnv(StreamRef, StreamFactory) override {}
-  bool sleepUntil(std::chrono::steady_clock::time_point) override {}
+  bool sleepUntil(std::chrono::steady_clock::time_point) override { return true; }
 };
 
 TestEnv env;
 
-auto parse(std::string input) {
-  auto parser = makeStreamParser(env);
-  auto [stream, print_mode] = parser->parse(tokenize(input));
+auto parse(std::string input, Print::Mode *out_mode = nullptr) {
+  auto [stream, print_mode] = makeStreamParser(env)->parse(tokenize(input));
+  if (out_mode) *out_mode = print_mode;
   return stream | ranges::to<std::vector<Result<Value>>>();
 }
 
@@ -130,6 +145,18 @@ BOOST_AUTO_TEST_CASE(pipe) {
   BOOST_TEST(parse("1 | 2") == makeValues(2), each);
   BOOST_TEST(parse("1.. | 2 3") == makeValues(2, 3), each);
   BOOST_TEST(parse("1 | ({ name: `Bernard` })") == makeValues(JSON("{ name: \"Bernard\" }")), each);
+}
+
+BOOST_AUTO_TEST_CASE(print) {
+  Print::Mode mode;
+  BOOST_TEST(parse("1 | 2 :42", &mode) == makeValues(2), each);
+  BOOST_TEST(mode == Print::Mode(Print::Slice(42)));
+}
+
+BOOST_AUTO_TEST_CASE(file) {
+  Print::Mode mode;
+  BOOST_TEST(parse("true && false > mjau", &mode) == makeValues(false), each);
+  BOOST_TEST(mode == Print::Mode(Print::WriteFile{"mjau"sv}));
 }
 
 BOOST_AUTO_TEST_CASE(json) {
