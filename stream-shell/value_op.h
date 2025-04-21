@@ -12,7 +12,7 @@
  */
 template <typename Op, typename Type = void>
 struct ValueOp {
-  using Result = ClosureValue::result_type;
+  using Result = Expr::result_type;
 
   Result operator()(const google::protobuf::Value &val) {
     google::protobuf::Value result;

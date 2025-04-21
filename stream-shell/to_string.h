@@ -46,7 +46,7 @@ struct ToString {
   auto operator()(const Word &word) const -> Result<std::string> {
     return Token(word.value) | ranges::to<std::string>;
   }
-  auto operator()(const ClosureValue &value) const -> Result<std::string> {
+  auto operator()(const Expr &value) const -> Result<std::string> {
     if (auto result = value(_closure)) {
       return std::visit(*this, std::move(*result));
     } else {

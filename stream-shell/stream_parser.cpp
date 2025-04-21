@@ -277,7 +277,7 @@ struct ToJSON {
     return {};
   }
   auto operator()(Word word) -> std::string { return word.value | ranges::to<std::string>; }
-  auto operator()(ClosureValue value) -> std::string {
+  auto operator()(Expr value) -> std::string {
     if (auto result = value(_closure)) {
       return std::visit(*this, *result);
     } else {
@@ -286,7 +286,7 @@ struct ToJSON {
     }
   }
 
-  auto from(const auto &operands) -> ClosureValue::result_type {
+  auto from(const auto &operands) -> Expr::result_type {
     auto str = operands | ranges::views::for_each([&](Operand operand) {
                  return std::visit(*this, std::move(operand));
                }) |
@@ -467,7 +467,7 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
     return StreamRef(token | ranges::views::drop(1));
   }
   if (ranges::starts_with(token, "`"sv)) {
-    return [&env = env, token = token](const Closure &closure) -> ClosureValue::result_type {
+    return [&env = env, token = token](const Closure &closure) -> Expr::result_type {
       auto parts = trim(token, 1, 1) | ranges::views::split(' ') |
                    ranges::views::transform([to_string = ToString(env, closure, true)](
                                                 auto &&token) -> Result<std::string> {
@@ -499,8 +499,7 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
   // todo: fix closure variable in record
   if (auto it = closure.vars.find(Word{ranges::front(path)}); it != closure.vars.end()) {
     return [value = it->second, path = path | ranges::views::drop(1)](const auto &) {
-      return std::visit([](auto &&value) -> ClosureValue::result_type::value_type { return value; },
-                        lookupField(*value, path));
+      return std::visit([](auto &&value) -> ExprValue { return value; }, lookupField(*value, path));
     };
   }
   return Word{token};

@@ -37,7 +37,7 @@ inline bool isTruthy(const Stream &stream) {
 
 struct TernaryCondition {
   auto operator()(const auto &lhs, const auto &rhs) {
-    return isTruthy(lhs) ? ClosureValue::result_type(rhs) : std::unexpected(Error::kCoalesceSkip);
+    return isTruthy(lhs) ? Expr::result_type(rhs) : std::unexpected(Error::kCoalesceSkip);
   }
 };
 
@@ -69,7 +69,7 @@ struct Background {
  */
 template <typename ValueT,
           typename StreamT = std::nullptr_t,
-          typename ErrorT = std::function<ClosureValue::result_type(Error, Value)>>
+          typename ErrorT = std::function<Expr::result_type(Error, Value)>>
 struct ValueTransform {
   ValueTransform(ValueT &&t)
       : _value_t(std::move(t)), _error_t([](auto err, auto &&) { return std::unexpected(err); }) {}
@@ -79,7 +79,7 @@ struct ValueTransform {
         _stream_t(std::move(stream_t)),
         _error_t(std::move(error_t)) {}
 
-  auto operator()(const ValueOrStream auto &...v) -> Operand {
+  auto operator()(const IsExprValue auto &...v) -> Operand {
     if (auto result = eval1(v...)) {
       return std::visit([](auto value) -> Operand { return value; }, *result);
     } else {
@@ -89,39 +89,39 @@ struct ValueTransform {
   auto operator()(const auto &...v) -> Operand { return eval2(v...); }
 
  private:
-  auto eval1(const Stream &v) -> ClosureValue::result_type { return _stream_t(v); }
-  auto eval1(const ValueOrStream auto &...v) -> ClosureValue::result_type { return _value_t(v...); }
+  auto eval1(const Stream &v) -> Expr::result_type { return _stream_t(v); }
+  auto eval1(const IsExprValue auto &...v) -> Expr::result_type { return _value_t(v...); }
 
-  auto eval2(const ClosureValue &v) -> ClosureValue {
+  auto eval2(const Expr &v) -> Expr {
     return [op = *this, v](const Closure &closure) mutable {
       return v(closure).and_then(
           [&](auto v) { return std::visit([&](auto v) { return op.eval1(v); }, v); });
     };
   }
 
-  auto eval2(const ClosureValue &lhs, const IsValue auto &rhs) -> ClosureValue {
+  auto eval2(const Expr &lhs, const IsValue auto &rhs) -> Expr {
     return [lhs, op = *this, rhs](const Closure &closure) mutable {
       return lhs(closure)
           .and_then([&](auto lhs) {
-            return std::visit([&](ValueOrStream auto lhs) { return op.eval1(lhs, rhs); }, lhs);
+            return std::visit([&](IsExprValue auto lhs) { return op.eval1(lhs, rhs); }, lhs);
           })
           .or_else([&](Error err) { return op._error_t(err, rhs); });
     };
   }
-  auto eval2(const IsValue auto &lhs, const ClosureValue &rhs) -> ClosureValue {
+  auto eval2(const IsValue auto &lhs, const Expr &rhs) -> Expr {
     return [lhs, op = *this, rhs](const Closure &closure) mutable {
       return rhs(closure).and_then(
           [&](auto rhs) { return std::visit([&](auto &rhs) { return op.eval1(lhs, rhs); }, rhs); });
     };
   }
-  auto eval2(const ClosureValue &lhs, const ClosureValue &rhs) -> ClosureValue {
+  auto eval2(const Expr &lhs, const Expr &rhs) -> Expr {
     return [lhs, op = *this, rhs](const Closure &closure) mutable {
       return rhs(closure).and_then([&](auto rhs) {
         return std::visit([&](auto rhs) { return op.eval2(lhs, rhs)(closure); }, rhs);
       });
     };
   }
-  auto eval2(const auto &...) -> ClosureValue {
+  auto eval2(const auto &...) -> Expr {
     return [](auto &) { return std::unexpected(Error::kInvalidOp); };
   }
 
@@ -135,14 +135,14 @@ struct OperandOp {
 
   auto operator()(const auto &v) const -> Operand {
     return ValueTransform(
-        [&](const IsValue auto &v) -> ClosureValue::result_type {
+        [&](const IsValue auto &v) -> Expr::result_type {
           if (op == "+") return ValueOp<std::identity>()(v);
           if (op == "-") return ValueOp<std::negate<>>()(v);
           if (op == "!") return ValueOp<std::logical_not<>, bool>()(v);
           if (op == "..") return ValueOp<Iota>()(v);
           return std::unexpected(Error::kInvalidOp);
         },
-        [&](const Stream &s) -> ClosureValue::result_type {
+        [&](const Stream &s) -> Expr::result_type {
           if (op == "&") return Background()(s);
           return std::unexpected(Error::kInvalidOp);
         },
@@ -150,7 +150,7 @@ struct OperandOp {
   }
   auto operator()(const auto &...v) const -> Operand {
     return ValueTransform(
-        [op = op](const auto &...v) -> ClosureValue::result_type {
+        [op = op](const auto &...v) -> Expr::result_type {
           if (op == "||") return ValueOp<std::logical_or<>, bool>()(v...);
           if (op == "&&") return ValueOp<std::logical_and<>, bool>()(v...);
           if (op == "==") return ValueOp<std::equal_to<>, bool>()(v...);
@@ -170,7 +170,7 @@ struct OperandOp {
           return std::unexpected(Error::kInvalidOp);
         },
         {},
-        [op = op](Error err, const IsValue auto &rhs) -> ClosureValue::result_type {
+        [op = op](Error err, const IsValue auto &rhs) -> Expr::result_type {
           if (op == "?:" && err == Error::kCoalesceSkip) {
             return rhs;
           }

@@ -4,11 +4,13 @@
 #include "stream_parser.h"
 #include "variant_ext.h"
 
-using ClosureValue = std::function<Result<variant_ext_t<Value, Stream>>(const Closure &)>;
-using Operand = variant_ext_t<Value, Stream, StreamRef, Word, ClosureValue>;
+using ExprValue = variant_ext_t<Value, Stream>;
+using Expr = std::function<Result<ExprValue>(const Closure &)>;
+
+using Operand = variant_ext_t<Value, Stream, StreamRef, Word, Expr>;
 
 template <typename T>
-concept ValueOrStream = InVariant<ClosureValue::result_type::value_type, T>;
+concept IsValue = InVariant<Value, T>;
 
 template <typename T>
-concept IsValue = ValueOrStream<T> && InVariant<Value, T>;
+concept IsExprValue = InVariant<ExprValue, T>;

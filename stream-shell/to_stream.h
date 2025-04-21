@@ -31,7 +31,7 @@ struct ToStream {
     value.set_string_value(Token(word.value) | ranges::to<std::string>);
     return ranges::views::single(std::move(value));
   }
-  auto operator()(const ClosureValue &value) const -> Stream {
+  auto operator()(const Expr &value) const -> Stream {
     if (auto result = value(_closure)) {
       return std::visit(*this, std::move(*result));
     } else {
