@@ -39,10 +39,14 @@ struct TernaryCondition {
   auto operator()(const auto &lhs, const auto &rhs) {
     return isTruthy(lhs) ? Expr::result_type(rhs) : std::unexpected(Error::kCoalesceSkip);
   }
+  auto operator()(Error err, const auto &) { return std::unexpected(err); }
 };
 
-struct TernaryTruthy {
+struct TernaryEvaluation {
   auto operator()(const auto &lhs, const auto &) { return lhs; }
+  auto operator()(Error err, const auto &rhs) -> Expr::result_type {
+    return err == Error::kCoalesceSkip ? Expr::result_type(rhs) : std::unexpected(err);
+  }
 };
 
 struct Iota {
@@ -67,17 +71,12 @@ struct Background {
 /**
  * Visits Operand variants transforming Values. For use in operators and builins
  */
-template <typename ValueT,
-          typename StreamT = std::nullptr_t,
-          typename ErrorT = std::function<Expr::result_type(Error, Value)>>
+template <typename ValueT, typename StreamT = std::nullptr_t>
 struct ValueTransform {
-  ValueTransform(ValueT &&t)
-      : _value_t(std::move(t)), _error_t([](auto err, auto &&) { return std::unexpected(err); }) {}
+  ValueTransform(ValueT &&t) : _value_t(std::move(t)) {}
 
-  ValueTransform(ValueT &&value_t, StreamT &&stream_t, ErrorT &&error_t)
-      : _value_t(std::move(value_t)),
-        _stream_t(std::move(stream_t)),
-        _error_t(std::move(error_t)) {}
+  ValueTransform(ValueT &&value_t, StreamT &&stream_t)
+      : _value_t(std::move(value_t)), _stream_t(std::move(stream_t)) {}
 
   auto operator()(const IsExprValue auto &...v) -> Operand {
     if (auto result = eval1(v...)) {
@@ -105,7 +104,7 @@ struct ValueTransform {
           .and_then([&](auto lhs) {
             return std::visit([&](IsExprValue auto lhs) { return op.eval1(lhs, rhs); }, lhs);
           })
-          .or_else([&](Error err) { return op._error_t(err, rhs); });
+          .or_else([&](Error err) { return op._value_t(err, rhs); });
     };
   }
   auto eval2(const IsValue auto &lhs, const Expr &rhs) -> Expr {
@@ -127,7 +126,6 @@ struct ValueTransform {
 
   ValueT _value_t;
   StreamT _stream_t = {};
-  ErrorT _error_t = {};
 };
 
 struct OperandOp {
@@ -135,7 +133,7 @@ struct OperandOp {
 
   auto operator()(const auto &v) const -> Operand {
     return ValueTransform(
-        [&](const IsValue auto &v) -> Expr::result_type {
+        [&](const auto &v) -> Expr::result_type {
           if (op == "+") return ValueOp<std::identity>()(v);
           if (op == "-") return ValueOp<std::negate<>>()(v);
           if (op == "!") return ValueOp<std::logical_not<>, bool>()(v);
@@ -145,8 +143,7 @@ struct OperandOp {
         [&](const Stream &s) -> Expr::result_type {
           if (op == "&") return Background()(s);
           return std::unexpected(Error::kInvalidOp);
-        },
-        [](auto err, auto &) { return std::unexpected(err); })(v);
+        })(v);
   }
   auto operator()(const auto &...v) const -> Operand {
     return ValueTransform(
@@ -165,17 +162,11 @@ struct OperandOp {
           if (op == "/") return ValueOp<std::divides<>>()(v...);
           if (op == "%") return ValueOp<std::modulus<>>()(v...);
           if (op == "?") return TernaryCondition()(v...);
-          if (op == "?:") return TernaryTruthy()(v...);
+          if (op == "?:") return TernaryEvaluation()(v...);
           if (op == "..") return ValueOp<Iota>()(v...);
           return std::unexpected(Error::kInvalidOp);
         },
-        {},
-        [op = op](Error err, const IsValue auto &rhs) -> Expr::result_type {
-          if (op == "?:" && err == Error::kCoalesceSkip) {
-            return rhs;
-          }
-          return std::unexpected(err);
-        })(v...);
+        {})(v...);
   }
 
  private:

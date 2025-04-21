@@ -96,5 +96,6 @@ struct ValueOp {
     return result;
   }
 
+  Result operator()(const Error &err, const auto &...) { return std::unexpected(err); }
   Result operator()(const auto &...) { return std::unexpected(Error::kInvalidOp); }
 };
