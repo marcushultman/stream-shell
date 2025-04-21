@@ -240,71 +240,63 @@ auto isOperator(const CommandBuilder &lhs, std::ranges::range auto op) {
   return precedence(lhs, op) > 0;
 }
 
+/**
+ * Used at record-end evaluation to join all operands into a range of json-parsable tokens. These
+ * are joined and parsed into a Value struct.
+ */
 struct ToJSON {
-  ToJSON(Env &env, const Closure &closure) : _env{env}, _closure{closure} {}
+  ToJSON(Env &env, const Closure &closure) : _to_str{env, closure} {}
 
-  auto operator()(IsValue auto value) -> std::string {
-    std::string str;
-    (void)google::protobuf::json::MessageToJsonString(value, &str);
-    return str;
+  auto operator()(const google::protobuf::Message &val) const -> Result<std::string> {
+    return _to_str(val);
   }
-  auto operator()(Stream stream) -> std::string {
-    return (*this)(
-        ranges::fold_left(stream, google::protobuf::Value(), [&](auto &&list, auto &&result) {
-          if (!result) {
-            error = result.error();
-            return list;
-          }
-          auto &value = *list.mutable_list_value()->add_values();
-          if (auto *bytes = std::get_if<google::protobuf::BytesValue>(&*result)) {
-            // todo: base64 encode
-            value.set_string_value(bytes->Utf8DebugString());
-          } else if (auto *pvalue = std::get_if<google::protobuf::Value>(&*result)) {
-            value = std::move(*pvalue);
-          } else if (auto *any = std::get_if<google::protobuf::Any>(&*result)) {
-            // todo: something
-            value.set_string_value(any->Utf8DebugString());
-          }
-          return list;
-        }));
+  auto operator()(const Stream &stream) const -> Result<std::string> {
+    return ranges::fold_left(
+               Stream(stream),
+               google::protobuf::Value(),
+               [&](Result<google::protobuf::Value> &&list, auto &&result) {
+                 return list.and_then([&](auto &&list) {
+                   return std::forward<decltype(result)>(result).transform(
+                       [&](auto &&value) -> google::protobuf::Value {
+                         auto &list_value = *list.mutable_list_value()->add_values();
+
+                         if (auto *bytes = std::get_if<google::protobuf::BytesValue>(&value)) {
+                           // todo: base64 encode
+                           list_value.set_string_value(bytes->Utf8DebugString());
+                         } else if (auto *pvalue = std::get_if<google::protobuf::Value>(&value)) {
+                           list_value = std::move(*pvalue);
+                         } else if (auto *any = std::get_if<google::protobuf::Any>(&value)) {
+                           // todo: something
+                           list_value.set_string_value(any->Utf8DebugString());
+                         }
+                         return list;
+                       });
+                 });
+               })
+        .and_then([&](auto &&list) { return (*this)(std::forward<decltype(list)>(list)); });
   }
-  auto operator()(StreamRef ref) -> std::string {
-    if (auto stream = _env.getEnv(ref)) {
-      return (*this)(stream());
-    }
-    error = Error::kInvalidStreamRef;
-    return {};
-  }
-  auto operator()(Word word) -> std::string { return word.value | ranges::to<std::string>; }
-  auto operator()(Expr value) -> std::string {
-    if (auto result = value(_closure)) {
-      return std::visit(*this, *result);
-    } else {
-      error = result.error();
-      return {};
-    }
+  auto operator()(const StreamRef &ref) const -> Result<std::string> { return _to_str(ref); }
+  auto operator()(const Word &word) const -> Result<std::string> { return _to_str(word); }
+  auto operator()(const Expr &value) const -> Result<std::string> { return _to_str(value); }
+
+  auto operator()(const Operand &operand) const -> Result<std::string> {
+    return std::visit(*this, operand);
   }
 
-  Env &_env;
-  const Closure &_closure;
-  Error error = Error::kSuccess;
+  ToString _to_str;
 };
 
 auto toJSON(Env &env, std::vector<Operand> &&operands) {
   return [&env, operands = std::move(operands)](const Closure &closure) -> Expr::result_type {
-    auto to_json = ToJSON(env, closure);
-    auto str = operands | ranges::views::for_each([&](auto operand) {
-                 return std::visit(to_json, std::move(operand));
-               }) |
-               ranges::to<std::string>;
-    if (to_json.error != Error::kSuccess) {
-      return std::unexpected(to_json.error);
-    } else if (auto value = google::protobuf::Value();
-               google::protobuf::json::JsonStringToMessage(str, value.mutable_struct_value())
-                   .ok()) {
-      return value;
-    }
-    return std::unexpected(Error::kJsonError);
+    return lift(operands | ranges::views::transform(ToJSON(env, closure)))
+        .transform([](auto &&s) { return s | ranges::views::join | ranges::to<std::string>; })
+        .and_then([](auto &&str) -> Expr::result_type {
+          auto value = google::protobuf::Value();
+          if (google::protobuf::json::JsonStringToMessage(str, value.mutable_struct_value()).ok()) {
+            return value;
+          }
+          return std::unexpected(Error::kJsonError);
+        });
   };
 }
 
