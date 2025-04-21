@@ -160,7 +160,7 @@ You can transform list items just like any other stream.
 > (
     { name: "Albert", friends: [{ name: "Bernard" }, { name: "Cedric" }] } 
     { name: "Derek" }
-  ) | { person -> person.name (person.friends | { get name } | prepend "- ") }
+  ) | { person -> person.name (person.friends | { get name } | { prepend "- " }) }
 Albert
 - Bernard
 - Cedric

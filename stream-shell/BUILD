@@ -4,6 +4,7 @@ cc_library(
     "builtins/add.h",
     "builtins/get.h",
     "builtins/now.h",
+    "builtins/prepend.h",
     "builtin.h",
     "closure.h",
     "stream_parser.h",

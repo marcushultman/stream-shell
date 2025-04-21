@@ -9,6 +9,10 @@ inline Stream add(ToStream &&to_stream,
   if (!value) {
     return ranges::views::single(std::unexpected(value.error()));
   }
+  if (ranges::empty(args)) {
+    return ranges::views::single(std::unexpected(Error::kMissingOperand));
+  }
+  // todo: fold_left
   return std::visit(
       to_stream, std::visit(ValueTransform(ValueOp<std::plus<>>()), *value, ranges::front(args)));
 }

@@ -67,9 +67,12 @@ struct Background {
 /**
  * Visits Operand variants transforming Values. For use in operators and builins
  */
-template <typename ValueT, typename StreamT = std::nullptr_t, typename ErrorT = std::nullptr_t>
+template <typename ValueT,
+          typename StreamT = std::nullptr_t,
+          typename ErrorT = std::function<ClosureValue::result_type(Error, Value)>>
 struct ValueTransform {
-  ValueTransform(ValueT &&t) : _value_t(std::move(t)) {}
+  ValueTransform(ValueT &&t)
+      : _value_t(std::move(t)), _error_t([](auto err, auto &&) { return std::unexpected(err); }) {}
 
   ValueTransform(ValueT &&value_t, StreamT &&stream_t, ErrorT &&error_t)
       : _value_t(std::move(value_t)),

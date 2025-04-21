@@ -6,6 +6,7 @@
 #include "builtins/add.h"
 #include "builtins/get.h"
 #include "builtins/now.h"
+#include "builtins/prepend.h"
 #include "closure.h"
 #include "to_stream.h"
 
@@ -29,6 +30,8 @@ inline std::optional<Stream> runBuiltin(Env &env,
     return get(ToStream(env, closure), std::forward<decltype(input)>(input), args);
   } else if (ranges::starts_with(cmd.value, "now"sv)) {
     return now(env);
+  } else if (ranges::starts_with(cmd.value, "prepend"sv)) {
+    return prepend(ToStream(env, closure), std::forward<decltype(input)>(input), args);
   }
   if (cmd.value == "exit") {
     return ranges::views::generate([] { return exit(0), Value(); });
