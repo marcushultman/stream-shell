@@ -570,8 +570,9 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
       }
       llhs.operands.back() = std::visit(
           OperandOp(ops.top()), std::move(llhs.operands.back()), std::move(lhs).operand(env));
-      rhs.operands[0] = std::visit(
-          OperandOp("?:"sv), std::move(llhs.operands.back()), std::move(rhs.operands[0]));
+      rhs.operands[0] = std::visit(ValueTransform(TernaryEvaluation()),
+                                   std::move(llhs.operands.back()),
+                                   std::move(rhs.operands[0]));
       llhs.operands.pop_back();
       llhs.operands.append_range(rhs.operands);
       cmds.push(std::move(llhs));

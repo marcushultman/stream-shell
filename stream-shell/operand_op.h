@@ -43,7 +43,7 @@ struct TernaryCondition {
 };
 
 struct TernaryEvaluation {
-  auto operator()(const auto &lhs, const auto &) { return lhs; }
+  auto operator()(const auto &lhs, const auto &) -> Expr::result_type { return lhs; }
   auto operator()(Error err, const auto &rhs) -> Expr::result_type {
     return err == Error::kCoalesceSkip ? Expr::result_type(rhs) : std::unexpected(err);
   }
@@ -150,7 +150,6 @@ struct OperandOp {
       if (op == "/") return ValueOp<std::divides<>>()(v...);
       if (op == "%") return ValueOp<std::modulus<>>()(v...);
       if (op == "?") return TernaryCondition()(v...);
-      if (op == "?:") return TernaryEvaluation()(v...);
       if (op == "..") return ValueOp<Iota>()(v...);
       return std::unexpected(Error::kInvalidOp);
     })(v...);
