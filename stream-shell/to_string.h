@@ -23,6 +23,12 @@ struct ToString {
     (void)google::protobuf::util::MessageToJsonString(val, &str).ok();
     return str;
   }
+  auto operator()(const google::protobuf::Value &val) const -> Result<std::string> {
+    if (val.has_string_value()) {
+      return val.string_value();
+    }
+    return (*this)(static_cast<const google::protobuf::Message &>(val));
+  }
   auto operator()(Stream stream) const -> Result<std::string> {
     Result<std::string> err;
     auto str =
