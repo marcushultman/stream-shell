@@ -103,23 +103,30 @@ struct FileWriter final : Consumer {
   ToString::Value _to_str;
 };
 
-void printStream(Stream &&stream, Print::Mode mode, const Prompt &prompt) {
-  std::unique_ptr<Consumer> consumer;
-
-  if (auto write_file = std::get_if<Print::WriteFile>(&mode)) {
-    auto filename = write_file->filename | ranges::to<std::string>;
+struct ConsumerFactory {
+  using C = std::unique_ptr<Consumer>;
+  ConsumerFactory(const Prompt &prompt) : _prompt{prompt} {}
+  auto operator()(Print::Pull &pull) -> C {
+    return std::make_unique<REPLPrinter>(pull.full, _prompt);
+  }
+  auto operator()(Print::Slice &slice) -> C { return std::make_unique<SlicePrinter>(slice.window); }
+  auto operator()(Print::WriteFile &write_file) -> C {
+    auto filename = write_file.filename | ranges::to<std::string>;
     auto file = std::ofstream(filename);
     if (!file.is_open()) {
       std::cerr << std::format("Failed to open file: {}", filename) << std::endl;
-      return;
+      return nullptr;
     }
-    consumer = std::make_unique<FileWriter>(std::move(file));
-  } else if (auto slice = std::get_if<Print::Slice>(&mode)) {
-    consumer = std::make_unique<SlicePrinter>(slice->window);
-  } else {
-    consumer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full, prompt);
+    return std::make_unique<FileWriter>(std::move(file));
   }
+  const Prompt &_prompt;
+};
 
+void printStream(Stream &&stream, Print::Mode mode, const Prompt &prompt) {
+  auto consumer = std::visit(ConsumerFactory(prompt), mode);
+  if (!consumer) {
+    return;
+  }
   for (auto &&[i, result] : ranges::views::enumerate(std::move(stream))) {
     if (!result) {
       std::cerr << std::format("Failed with code: {}", int(result.error())) << std::endl;
