@@ -7,11 +7,14 @@
 
 using namespace std::string_literals;
 
+/**
+ * Used to serialized external command args and interpolating string literals.
+ */
 struct ToString {
   ToString(const Env &env, const Closure &closure, bool escape_var = false)
       : _env{env}, _closure{closure}, _escape_var{escape_var} {}
 
-  auto operator()(google::protobuf::BytesValue val) const -> Result<std::string> {
+  auto operator()(const google::protobuf::BytesValue &val) const -> Result<std::string> {
     // todo: figure out when/if to encode
     return val.value();
   }
@@ -52,6 +55,10 @@ struct ToString {
     } else {
       return std::unexpected(result.error());
     }
+  }
+
+  auto operator()(const Operand &operand) const -> Result<std::string> {
+    return std::visit(*this, operand);
   }
 
   const Env &_env;

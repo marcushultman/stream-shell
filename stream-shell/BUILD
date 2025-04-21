@@ -7,6 +7,7 @@ cc_library(
     "builtins/prepend.h",
     "builtin.h",
     "closure.h",
+    "lift.h",
     "stream_parser.h",
     "stream_printer.h",
     "operand_op.h",

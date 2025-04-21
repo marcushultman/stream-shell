@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include "builtin.h"
 #include "closure.h"
+#include "lift.h"
 #include "operand.h"
 #include "operand_op.h"
 #include "to_stream.h"
@@ -140,12 +141,10 @@ struct CommandBuilder {
       return ranges::views::single(std::unexpected(Error::kExecPipeError));
     }
 
-    auto args = operands | ranges::views::transform([&](auto &operand) {
-                  return std::visit(ToString(env, closure), operand);
-                });
+    auto args = lift(operands | ranges::views::transform(ToString(env, closure)));
 
-    if (auto err = ranges::find_if(args, std::logical_not<>()); err != args.end()) {
-      return ranges::views::single(std::unexpected((*err).error()));
+    if (!args) {
+      return ranges::views::single(std::unexpected(args.error()));
     }
 
     if (auto pid = fork(); pid == 0) {
@@ -154,7 +153,7 @@ struct CommandBuilder {
       dup2(out_pipe[1], STDOUT_FILENO);
       dup2(err_pipe[1], STDERR_FILENO);
 
-      exec(args | ranges::views::transform([](auto &&r) { return std::move(*r); }));
+      exec(*args);
       exit(1);
 
     } else if (pid > 0) {
@@ -286,30 +285,26 @@ struct ToJSON {
     }
   }
 
-  auto from(const auto &operands) -> Expr::result_type {
-    auto str = operands | ranges::views::for_each([&](Operand operand) {
-                 return std::visit(*this, std::move(operand));
-               }) |
-               ranges::to<std::string>();
-    if (error != Error::kSuccess) {
-      return std::unexpected(error);
-    }
-    auto value = google::protobuf::Value();
-    auto *json = value.mutable_struct_value();
-    if (google::protobuf::json::JsonStringToMessage(str, json).ok()) {
-      return value;
-    }
-    return std::unexpected(Error::kJsonError);
-  }
-
   Env &_env;
   const Closure &_closure;
   Error error = Error::kSuccess;
 };
 
 auto toJSON(Env &env, std::vector<Operand> &&operands) {
-  return [&env, operands = std::move(operands)](const Closure &closure) {
-    return ToJSON(env, closure).from(operands);
+  return [&env, operands = std::move(operands)](const Closure &closure) -> Expr::result_type {
+    auto to_json = ToJSON(env, closure);
+    auto str = operands | ranges::views::for_each([&](auto operand) {
+                 return std::visit(to_json, std::move(operand));
+               }) |
+               ranges::to<std::string>;
+    if (to_json.error != Error::kSuccess) {
+      return std::unexpected(to_json.error);
+    } else if (auto value = google::protobuf::Value();
+               google::protobuf::json::JsonStringToMessage(str, value.mutable_struct_value())
+                   .ok()) {
+      return value;
+    }
+    return std::unexpected(Error::kJsonError);
   };
 }
 
@@ -467,22 +462,20 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
     return StreamRef(token | ranges::views::drop(1));
   }
   if (ranges::starts_with(token, "`"sv)) {
-    return [&env = env, token = token](const Closure &closure) -> Expr::result_type {
-      auto parts = trim(token, 1, 1) | ranges::views::split(' ') |
-                   ranges::views::transform([to_string = ToString(env, closure, true)](
-                                                auto &&token) -> Result<std::string> {
-                     if (ranges::starts_with(token, "$"sv)) {
-                       return to_string(StreamRef(token | ranges::views::drop(1)));
-                     }
-                     return token | ranges::to<std::string>;
-                   });
-      if (auto it = ranges::find_if(parts, std::logical_not<>()); it != ranges::end(parts)) {
-        return std::unexpected((*it).error());
-      }
-      auto val = google::protobuf::Value();
-      val.set_string_value(parts | ranges::views::transform([](auto &&r) { return *r; }) |
-                           ranges::views::join(' ') | ranges::to<std::string>());
-      return val;
+    return [&env = env, token = token](const Closure &closure) {
+      auto to_string = ToString(env, closure, true);
+      return lift(trim(token, 1, 1) | ranges::views::split(' ') |
+                  ranges::views::transform([&](auto &&token) -> Result<std::string> {
+                    if (ranges::starts_with(token, "$"sv)) {
+                      return to_string(StreamRef(token | ranges::views::drop(1)));
+                    }
+                    return token | ranges::to<std::string>;
+                  }))
+          .transform([](auto &&parts) {
+            auto val = google::protobuf::Value();
+            val.set_string_value(parts | ranges::views::join(' ') | ranges::to<std::string>());
+            return val;
+          });
     };
   }
   if (auto val = google::protobuf::Value(); ranges::starts_with(token, "'"sv)) {
