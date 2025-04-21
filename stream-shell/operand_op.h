@@ -29,10 +29,10 @@ inline bool isTruthy(const google::protobuf::Any &value) {
   return true;
 }
 inline bool isTruthy(const Value &value) {
-  return std::visit([](auto &value) { return isTruthy(value); }, value);
+  return std::visit([](const auto &value) { return isTruthy(value); }, value);
 }
-inline bool isTruthy(const Stream &stream) {
-  return ranges::all_of(Stream(stream), [](auto value) { return value && isTruthy(*value); });
+inline bool isTruthy(Stream stream) {
+  return ranges::all_of(stream, [](auto &&value) { return value && isTruthy(*value); });
 }
 
 struct TernaryCondition {
