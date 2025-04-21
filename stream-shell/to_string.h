@@ -8,7 +8,8 @@
 using namespace std::string_literals;
 
 struct ToString {
-  ToString(const Env &env, const Closure &closure) : _env{env}, _closure{closure} {}
+  ToString(const Env &env, const Closure &closure, bool escape_var = false)
+      : _env{env}, _closure{closure}, _escape_var{escape_var} {}
 
   auto operator()(google::protobuf::BytesValue val) const -> Result<std::string> {
     // todo: figure out when/if to encode
@@ -32,7 +33,10 @@ struct ToString {
     return err.transform([&](auto &) { return str; });
   }
   auto operator()(const StreamRef &ref) const -> Result<std::string> {
-    if (auto it = _closure.env_overrides.find(ref.name); it != _closure.env_overrides.end()) {
+    if (auto it = _closure.vars.find(ref.name); _escape_var && it != _closure.vars.end()) {
+      return std::visit(*this, *it->second);
+    } else if (auto it = _closure.env_overrides.find(ref.name);
+               it != _closure.env_overrides.end()) {
       return (*this)(it->second());
     } else if (auto stream = _env.getEnv(ref)) {
       return (*this)(stream());
@@ -52,4 +56,5 @@ struct ToString {
 
   const Env &_env;
   const Closure &_closure;
+  bool _escape_var;
 };

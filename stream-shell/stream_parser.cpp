@@ -467,25 +467,20 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
     return StreamRef(token | ranges::views::drop(1));
   }
   if (ranges::starts_with(token, "`"sv)) {
-    return [&env = env, token = token](const Closure &closure) {
+    return [&env = env, token = token](const Closure &closure) -> ClosureValue::result_type {
+      auto parts = trim(token, 1, 1) | ranges::views::split(' ') |
+                   ranges::views::transform([to_string = ToString(env, closure, true)](
+                                                auto &&token) -> Result<std::string> {
+                     if (ranges::starts_with(token, "$"sv)) {
+                       return to_string(StreamRef(token | ranges::views::drop(1)));
+                     }
+                     return token | ranges::to<std::string>;
+                   });
+      if (auto it = ranges::find_if(parts, std::logical_not<>()); it != ranges::end(parts)) {
+        return std::unexpected((*it).error());
+      }
       auto val = google::protobuf::Value();
-      val.set_string_value(trim(token, 1, 1) | ranges::views::split(' ') |
-                           ranges::views::transform([&env, &closure](auto &&token) -> std::string {
-                             if (ranges::starts_with(token, "$"sv)) {
-                               auto ref = StreamRef(token | ranges::views::drop(1));
-                               if (auto it = closure.env_overrides.find(ref.name);
-                                   it != closure.env_overrides.end()) {
-                                 return ToJSON(env, closure)(it->second());
-                               }
-                               if (auto it = closure.vars.find(ref.name);
-                                   it != closure.vars.end()) {
-                                 return std::visit(ToJSON(env, closure), *it->second);
-                               }
-                               auto stream = env.getEnv(ref);
-                               return stream ? ToJSON(env, closure)(stream()) : std::string();
-                             }
-                             return token | ranges::to<std::string>;
-                           }) |
+      val.set_string_value(parts | ranges::views::transform([](auto &&r) { return *r; }) |
                            ranges::views::join(' ') | ranges::to<std::string>());
       return val;
     };
@@ -569,19 +564,18 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
       cmds.push(std::move(lhs));
 
     } else if (ternaryOp(ops.top())) {
-      auto condition = std::move(cmds.top());
+      auto llhs = std::move(cmds.top());
       cmds.pop();
-      if (condition.operands.empty()) {
+      if (llhs.operands.empty()) {
         return std::unexpected(Error::kMissingOperand);
       }
-      condition.operands.back() = std::visit(
-          OperandOp(ops.top()), std::move(condition.operands.back()), std::move(lhs).operand(env));
-
+      llhs.operands.back() = std::visit(
+          OperandOp(ops.top()), std::move(llhs.operands.back()), std::move(lhs).operand(env));
       rhs.operands[0] = std::visit(
-          OperandOp("?:"sv), std::move(condition.operands.back()), std::move(rhs.operands[0]));
-      condition.operands.pop_back();
-      condition.operands.append_range(rhs.operands);
-      cmds.push(std::move(condition));
+          OperandOp("?:"sv), std::move(llhs.operands.back()), std::move(rhs.operands[0]));
+      llhs.operands.pop_back();
+      llhs.operands.append_range(rhs.operands);
+      cmds.push(std::move(llhs));
 
     } else if (ops.top() == ":") {
       lhs.print_mode = [&] -> Print::Mode {
