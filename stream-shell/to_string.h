@@ -10,64 +10,78 @@ using namespace std::string_literals;
 /**
  * Used to serialized external command args and interpolating string literals.
  */
-struct ToString {
-  ToString(const Env &env, const Closure &closure, bool escape_var = false)
-      : _env{env}, _closure{closure}, _escape_var{escape_var} {}
+struct ToString final {
+  ToString() = delete;
 
-  auto operator()(const google::protobuf::BytesValue &val) const -> Result<std::string> {
-    // todo: figure out when/if to encode
-    return val.value();
-  }
-  auto operator()(const google::protobuf::Message &val) const -> Result<std::string> {
-    std::string str;
-    (void)google::protobuf::util::MessageToJsonString(val, &str).ok();
-    return str;
-  }
-  auto operator()(const google::protobuf::Value &val) const -> Result<std::string> {
-    if (val.has_string_value()) {
-      return val.string_value();
-    }
-    return (*this)(static_cast<const google::protobuf::Message &>(val));
-  }
-  auto operator()(Stream stream) const -> Result<std::string> {
-    Result<std::string> err;
-    auto str =
-        stream | ranges::views::transform([&](auto &&result) {
-          return (err = err.and_then([&](auto &) { return result; }).and_then([&](auto &&value) {
-                   return std::visit(*this, value);
-                 }))
-              .value_or(""s);
-        }) |
-        ranges::views::join(" ") | ranges::to<std::string>;
-    return err.transform([&](auto &) { return str; });
-  }
-  auto operator()(const StreamRef &ref) const -> Result<std::string> {
-    if (auto it = _closure.vars.find(ref.name); _escape_var && it != _closure.vars.end()) {
-      return std::visit(*this, *it->second);
-    } else if (auto it = _closure.env_overrides.find(ref.name);
-               it != _closure.env_overrides.end()) {
-      return (*this)(it->second());
-    } else if (auto stream = _env.getEnv(ref)) {
-      return (*this)(stream());
-    }
-    return std::unexpected(Error::kInvalidStreamRef);
-  }
-  auto operator()(const Word &word) const -> Result<std::string> {
-    return Token(word.value) | ranges::to<std::string>;
-  }
-  auto operator()(const Expr &value) const -> Result<std::string> {
-    if (auto result = value(_closure)) {
-      return std::visit(*this, std::move(*result));
-    } else {
-      return std::unexpected(result.error());
-    }
-  }
+  using Result = Result<std::string>;
 
-  auto operator()(const Operand &operand) const -> Result<std::string> {
-    return std::visit(*this, operand);
-  }
+  struct Value {
+    auto operator()(const google::protobuf::BytesValue &val) const -> Result {
+      // todo: figure out when/if to encode
+      return val.value();
+    }
+    auto operator()(const google::protobuf::Message &val) const -> Result {
+      std::string str;
+      (void)google::protobuf::util::MessageToJsonString(val, &str).ok();
+      return str;
+    }
+    auto operator()(const google::protobuf::Value &val) const -> Result {
+      if (val.has_string_value()) {
+        return val.string_value();
+      }
+      return (*this)(static_cast<const google::protobuf::Message &>(val));
+    }
+  };
 
-  const Env &_env;
-  const Closure &_closure;
-  bool _escape_var;
+  struct Operand : Value {
+    Operand(const Env &env, const Closure &closure, bool escape_var = false)
+        : _env{env}, _closure{closure}, _escape_var{escape_var} {}
+
+    using Value::operator();
+
+    auto operator()(auto *self, Stream stream) const -> Result {
+      Result err;
+      auto str =
+          stream | ranges::views::transform([&](auto &&result) {
+            return (err = err.and_then([&](auto &) { return result; }).and_then([&](auto &&value) {
+                     return std::visit(*self, value);
+                   }))
+                .value_or(""s);
+          }) |
+          ranges::views::join(" ") | ranges::to<std::string>;
+      return err.transform([&](auto &) { return str; });
+    }
+    auto operator()(auto *self, const StreamRef &ref) const -> Result {
+      if (auto it = _closure.vars.find(ref.name); _escape_var && it != _closure.vars.end()) {
+        return std::visit(*self, *it->second);
+      } else if (auto it = _closure.env_overrides.find(ref.name);
+                 it != _closure.env_overrides.end()) {
+        return (*self)(it->second());
+      } else if (auto stream = _env.getEnv(ref)) {
+        return (*self)(stream());
+      }
+      return std::unexpected(Error::kInvalidStreamRef);
+    }
+    auto operator()(const Word &word) const -> Result {
+      return Token(word.value) | ranges::to<std::string>;
+    }
+    auto operator()(auto *self, const Expr &value) const -> Result {
+      if (auto result = value(_closure)) {
+        return std::visit(*self, std::move(*result));
+      } else {
+        return std::unexpected(result.error());
+      }
+    }
+
+    //
+    auto operator()(const StreamRef &ref) const -> Result { return (*this)(this, ref); }
+    auto operator()(Stream stream) const -> Result { return (*this)(this, stream); }
+    auto operator()(const Expr &value) const -> Result { return (*this)(this, value); }
+
+    auto operator()(const ::Operand &operand) const -> Result { return std::visit(*this, operand); }
+
+    const Env &_env;
+    const Closure &_closure;
+    bool _escape_var;
+  };
 };

@@ -141,7 +141,7 @@ struct CommandBuilder {
       return ranges::views::single(std::unexpected(Error::kExecPipeError));
     }
 
-    auto args = lift(operands | ranges::views::transform(ToString(env, closure)));
+    auto args = lift(operands | ranges::views::transform(ToString::Operand(env, closure)));
 
     if (!args) {
       return ranges::views::single(std::unexpected(args.error()));
@@ -275,15 +275,15 @@ struct ToJSON {
                })
         .and_then([&](auto &&list) { return (*this)(std::forward<decltype(list)>(list)); });
   }
-  auto operator()(const StreamRef &ref) const -> Result<std::string> { return _to_str(ref); }
+  auto operator()(const StreamRef &ref) const -> Result<std::string> { return _to_str(this, ref); }
   auto operator()(const Word &word) const -> Result<std::string> { return _to_str(word); }
-  auto operator()(const Expr &value) const -> Result<std::string> { return _to_str(value); }
+  auto operator()(const Expr &value) const -> Result<std::string> { return _to_str(this, value); }
 
   auto operator()(const Operand &operand) const -> Result<std::string> {
     return std::visit(*this, operand);
   }
 
-  ToString _to_str;
+  ToString::Operand _to_str;
 };
 
 auto toJSON(Env &env, std::vector<Operand> &&operands) {
@@ -455,11 +455,11 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
   }
   if (ranges::starts_with(token, "`"sv)) {
     return [&env = env, token = token](const Closure &closure) {
-      auto to_string = ToString(env, closure, true);
+      auto to_str = ToString::Operand(env, closure, true);
       return lift(trim(token, 1, 1) | ranges::views::split(' ') |
                   ranges::views::transform([&](auto &&token) -> Result<std::string> {
                     if (ranges::starts_with(token, "$"sv)) {
-                      return to_string(StreamRef(token | ranges::views::drop(1)));
+                      return to_str(StreamRef(token | ranges::views::drop(1)));
                     }
                     return token | ranges::to<std::string>;
                   }))

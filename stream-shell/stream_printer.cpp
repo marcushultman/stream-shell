@@ -8,12 +8,39 @@
 #include <google/protobuf/util/json_util.h>
 #include <range/v3/all.hpp>
 #include <unistd.h>
+#include "to_string.h"
 
 namespace {
 
-struct Printer {
+struct Consumer {
+  virtual ~Consumer() = default;
+  virtual auto operator()(size_t i, const Value &) -> bool = 0;
+};
+
+struct Printer : Consumer {
   virtual ~Printer() = default;
   virtual bool print(size_t i, std::string_view value) = 0;
+
+  auto operator()(const google::protobuf::Value &value) -> bool {
+    if (!value.has_string_value()) {
+      return (*this)(static_cast<const google::protobuf::Message &>(value));
+    }
+    _scratch = value.string_value();
+    return true;
+  }
+  auto operator()(const google::protobuf::Message &value) -> bool {
+    _scratch.clear();
+    auto status = google::protobuf::util::MessageToJsonString(value, &_scratch);
+    if (!status.ok()) {
+      std::cerr << status.message() << std::endl;
+    }
+    return status.ok();
+  }
+  auto operator()(size_t i, const Value &value) -> bool override {
+    return std::visit(*this, value) && print(i, _scratch);
+  }
+
+  std::string _scratch;
 };
 
 struct SlicePrinter final : Printer {
@@ -63,68 +90,48 @@ struct REPLPrinter final : Printer {
   const Prompt &_prompt;
 };
 
-struct FilePrinter final : Printer {
-  FilePrinter(std::string filename) : _filename{std::move(filename)}, _file{_filename} {}
+struct FileWriter final : Consumer {
+  FileWriter(std::ofstream file) : _file{std::move(file)} {}
 
-  bool print(size_t i, std::string_view value) override {
-    if (!_file.is_open()) {
-      std::cerr << "Failed to open file: " << _filename << std::endl;
-      return false;
-    }
-    _file.write(value.data(), value.size());
+  auto operator()(size_t, const Value &value) -> bool override {
+    auto str = *std::visit(_to_str, value);
+    _file.write(str.data(), str.size());
     return true;
   }
 
-  std::string _filename;
   std::ofstream _file;
+  ToString::Value _to_str;
 };
 
-struct ToJSON {
-  auto operator()(const auto &value) {
-    scratch.clear();
-    if constexpr (std::is_same_v<std::decay_t<decltype(value)>, google::protobuf::Value>) {
-      if (value.has_string_value()) {
-        scratch = value.string_value();
-        return absl::Status();
-      }
+void printStream(Stream &&stream, Print::Mode mode, const Prompt &prompt) {
+  std::unique_ptr<Consumer> consumer;
+
+  if (auto write_file = std::get_if<Print::WriteFile>(&mode)) {
+    auto filename = write_file->filename | ranges::to<std::string>;
+    auto file = std::ofstream(filename);
+    if (!file.is_open()) {
+      std::cerr << std::format("Failed to open file: {}", filename) << std::endl;
+      return;
     }
-    return google::protobuf::util::MessageToJsonString(value, &scratch);
-  }
-  std::string scratch;
-};
-
-auto printStream(Stream &&stream,
-                 Print::Mode mode,
-                 const Prompt &prompt) -> std::expected<void, std::string> {
-  ToJSON to_json;
-  std::unique_ptr<Printer> printer;
-
-  if (auto file = std::get_if<Print::WriteFile>(&mode)) {
-    printer = std::make_unique<FilePrinter>(file->filename | ranges::to<std::string>);
+    consumer = std::make_unique<FileWriter>(std::move(file));
   } else if (auto slice = std::get_if<Print::Slice>(&mode)) {
-    printer = std::make_unique<SlicePrinter>(slice->window);
+    consumer = std::make_unique<SlicePrinter>(slice->window);
   } else {
-    printer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full, prompt);
+    consumer = std::make_unique<REPLPrinter>(std::get<Print::Pull>(mode).full, prompt);
   }
 
   for (auto &&[i, result] : ranges::views::enumerate(std::move(stream))) {
     if (!result) {
-      return std::unexpected(std::format("Failed with code: {}", int(result.error())));
-    }
-    if (auto status = std::visit(to_json, *result); !status.ok()) {
-      return std::unexpected(std::string(status.message()));
-    } else if (!printer->print(i, to_json.scratch)) {
-      break;
+      std::cerr << std::format("Failed with code: {}", int(result.error())) << std::endl;
+      return;
+    } else if (!(*consumer)(i, *result)) {
+      return;
     }
   }
-  return {};
 }
 
 }  // namespace
 
 void printStream(PrintableStream &&stream, const Prompt &prompt) {
-  if (auto status = printStream(std::move(stream.first), stream.second, prompt);
-      !status.has_value()) {
-    std::cerr << status.error() << std::endl;
-  }
+  printStream(std::move(stream.first), stream.second, prompt);
 }
