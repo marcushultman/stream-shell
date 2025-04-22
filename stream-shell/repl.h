@@ -19,6 +19,11 @@ struct ProdEnv final : Env {
     } else if (auto *home_dir = getenv("HOME")) {
       load(std::string(home_dir) + "/.config");
     }
+    setEnv({"STSH_VERSION"sv}, [] {
+      auto value = google::protobuf::Value();
+      value.set_string_value(STSH_VERSION);
+      return ranges::yield(value);
+    });
   }
 
   StreamFactory getEnv(StreamRef ref) const override {
@@ -54,8 +59,7 @@ struct ProdEnv final : Env {
       return;
     }
     _config = (std::stringstream() << config.rdbuf()).view() | ranges::views::split('\n') |
-              ranges::views::filter([](auto &&s) { return !ranges::empty(s); }) |
-              ranges::to<std::vector<std::string>>;
+              ranges::views::filter(ranges::distance) | ranges::to<std::vector<std::string>>;
     for (auto &line : _config) {
       (void)_parser->parse(tokenize(line));
     }
