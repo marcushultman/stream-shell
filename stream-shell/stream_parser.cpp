@@ -162,6 +162,7 @@ struct CommandBuilder {
 
       return ranges::views::generate_n(
           [=] {
+            // todo: read in chunks
             auto buffer = readAll(out_pipe[0]);
             close(out_pipe[0]);
             close(err_pipe[0]);
@@ -170,8 +171,7 @@ struct CommandBuilder {
             waitpid(pid, &status, 0);
 
             google::protobuf::Value value;
-            value.set_string_value("Child process exited with status " + std::to_string(status) +
-                                   "\n" + buffer);
+            value.set_string_value(buffer);
             return value;
           },
           1);
