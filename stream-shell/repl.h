@@ -9,8 +9,6 @@
 #include "stream_printer.h"
 #include "tokenize.h"
 
-extern char **environ;
-
 using namespace std::string_view_literals;
 
 // env.h
@@ -46,6 +44,7 @@ struct ProdEnv final : Env {
   void interrupt() {
     std::unique_lock lock(_mutex);
     _stop = true;
+    _cv.notify_all();
   }
 
  private:
