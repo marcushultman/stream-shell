@@ -255,22 +255,21 @@ struct ToJSON {
                Stream(stream),
                google::protobuf::Value(),
                [&](Result<google::protobuf::Value> &&list, auto &&result) {
-                 return list.and_then([&](auto &&list) {
-                   return std::forward<decltype(result)>(result).transform(
-                       [&](auto &&value) -> google::protobuf::Value {
-                         auto &list_value = *list.mutable_list_value()->add_values();
+                 return std::move(list).and_then([&](auto &&list) {
+                   return std::move(result).transform([&](auto &&value) -> google::protobuf::Value {
+                     auto &list_value = *list.mutable_list_value()->add_values();
 
-                         if (auto *bytes = std::get_if<google::protobuf::BytesValue>(&value)) {
-                           // todo: base64 encode
-                           list_value.set_string_value(bytes->Utf8DebugString());
-                         } else if (auto *pvalue = std::get_if<google::protobuf::Value>(&value)) {
-                           list_value = std::move(*pvalue);
-                         } else if (auto *any = std::get_if<google::protobuf::Any>(&value)) {
-                           // todo: something
-                           list_value.set_string_value(any->Utf8DebugString());
-                         }
-                         return list;
-                       });
+                     if (auto *bytes = std::get_if<google::protobuf::BytesValue>(&value)) {
+                       // todo: base64 encode
+                       list_value.set_string_value(bytes->Utf8DebugString());
+                     } else if (auto *pvalue = std::get_if<google::protobuf::Value>(&value)) {
+                       list_value = std::move(*pvalue);
+                     } else if (auto *any = std::get_if<google::protobuf::Any>(&value)) {
+                       // todo: something
+                       list_value.set_string_value(any->Utf8DebugString());
+                     }
+                     return list;
+                   });
                  });
                })
         .and_then([&](auto &&list) { return (*this)(std::forward<decltype(list)>(list)); });
