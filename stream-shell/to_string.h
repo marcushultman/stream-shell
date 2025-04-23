@@ -3,6 +3,7 @@
 #include <google/protobuf/util/json_util.h>
 #include "closure.h"
 #include "operand.h"
+#include "stream-shell/lift.h"
 #include "stream_parser.h"
 
 using namespace std::string_literals;
@@ -40,16 +41,14 @@ struct ToString final {
     using Value::operator();
 
     auto operator()(auto *self, Stream stream) const -> Result {
-      Result err;
-      auto str =
-          stream | ranges::views::transform([&](auto &&result) {
-            return (err = err.and_then([&](auto &) { return result; }).and_then([&](auto &&value) {
-                     return std::visit(*self, value);
-                   }))
-                .value_or(""s);
-          }) |
-          ranges::views::join(" ") | ranges::to<std::string>;
-      return err.transform([&](auto &) { return str; });
+      return lift(stream)
+          .and_then([&](auto &&stream) {
+            return lift(stream | ranges::views::transform([&](auto &&value) {
+                          return std::visit(*self, std::move(value));
+                        }));
+          })
+          .transform(
+              [](auto &&s) { return s | ranges::views::join(" ") | ranges::to<std::string>; });
     }
     auto operator()(auto *self, const StreamRef &ref) const -> Result {
       if (auto it = _closure.vars.find(ref.name); _escape_var && it != _closure.vars.end()) {
