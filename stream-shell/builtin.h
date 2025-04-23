@@ -13,27 +13,20 @@
 using namespace std::string_view_literals;
 
 // todo: pass args here and return Operand (since builtins may fail)
-inline std::optional<Stream> runBuiltin(Env &env,
+inline std::optional<Stream> runBuiltin(Word cmd,
+                                        Env &env,
                                         const Closure &closure,
                                         auto &&input,
-                                        Word cmd,
                                         ranges::bidirectional_range auto args) {
-  if (ranges::starts_with(cmd.value, "iota"sv)) {
-    return ranges::views::iota(1) | ranges::views::transform([](auto i) {
-             google::protobuf::Value val;
-             val.set_string_value("🐑 " + std::to_string(i));
-             return val;
-           });
-  } else if (ranges::starts_with(cmd.value, "add"sv)) {
+  if (cmd.value == "add"sv) {
     return add(ToStream(env, closure), std::forward<decltype(input)>(input), args);
-  } else if (ranges::starts_with(cmd.value, "get"sv)) {
+  } else if (cmd.value == "get"sv) {
     return get(ToStream(env, closure), std::forward<decltype(input)>(input), args);
-  } else if (ranges::starts_with(cmd.value, "now"sv)) {
+  } else if (cmd.value == "now"sv) {
     return now(env);
-  } else if (ranges::starts_with(cmd.value, "prepend"sv)) {
+  } else if (cmd.value == "prepend"sv) {
     return prepend(ToStream(env, closure), std::forward<decltype(input)>(input), args);
-  }
-  if (cmd.value == "exit") {
+  } else if (cmd.value == "exit"sv) {
     return ranges::views::generate([] { return exit(0), Value(); });
   }
   return {};
