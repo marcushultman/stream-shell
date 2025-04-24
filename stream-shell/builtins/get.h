@@ -26,18 +26,15 @@ inline auto lookupField(Value value, ranges::forward_range auto path) -> Value {
 }
 
 inline auto get(ToStream &&to_stream,
-                Result<Value> &&input,
+                Value &&value,
                 ranges::bidirectional_range auto args) -> Stream {
-  if (!input) {
-    return ranges::views::single(std::unexpected(input.error()));
-  }
   const Operand op = ranges::front(args);
   auto *word = std::get_if<Word>(&op);
   if (!word) {
     return ranges::views::single(std::unexpected(Error::kMissingOperand));
   }
   return std::visit(to_stream,
-                    lookupField(std::move(*input), Token(word->value) | ranges::views::split('.')));
+                    lookupField(std::move(value), Token(word->value) | ranges::views::split('.')));
 }
 
 inline Stream get(auto &&...) {

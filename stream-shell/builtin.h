@@ -16,16 +16,16 @@ using namespace std::string_view_literals;
 inline std::optional<Stream> runBuiltin(Word cmd,
                                         Env &env,
                                         const Closure &closure,
-                                        auto &&input,
+                                        IsExprValue auto &&input,
                                         ranges::bidirectional_range auto args) {
   if (cmd.value == "add"sv) {
-    return add(ToStream(env, closure), std::forward<decltype(input)>(input), args);
+    return add(ToStream(env, closure), std::move(input), args);
   } else if (cmd.value == "get"sv) {
-    return get(ToStream(env, closure), std::forward<decltype(input)>(input), args);
+    return get(ToStream(env, closure), std::move(input), args);
   } else if (cmd.value == "now"sv) {
     return now(env);
   } else if (cmd.value == "prepend"sv) {
-    return prepend(ToStream(env, closure), std::forward<decltype(input)>(input), args);
+    return prepend(ToStream(env, closure), std::move(input), args);
   } else if (cmd.value == "exit"sv) {
     return ranges::views::generate([] { return exit(0), Value(); });
   }

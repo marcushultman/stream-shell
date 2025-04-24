@@ -81,33 +81,31 @@ struct CommandBuilder {
             input_mode = input_mode,
             input = std::move(input),
             closure = std::move(closure),
-            operands = std::move(operands)] {
-      auto build_stream = [&](auto &&input) -> Stream {
-        return std::move(input) |
-               ranges::views::for_each([&env, closure, operands](auto &&input) -> Stream {
-                 if (operands.empty()) {
-                   return {};
-                 }
+            operands = std::move(operands)] -> Stream {
+      auto run_cmd = [&env, closure, operands](IsExprValue auto input) -> Stream {
+        if (operands.empty()) {
+          return {};
+        }
 
-                 if (auto cmd = frontCommand(closure, operands)) {
-                   if (auto stream = runBuiltin(*cmd,
-                                                env,
-                                                closure,
-                                                std::forward<decltype(input)>(input),
-                                                operands | ranges::views::drop(1))) {
-                     return *stream;
-                   }
-                   return runChildProcess(env, closure, operands);
-                 }
+        if (auto cmd = frontCommand(closure, operands)) {
+          if (auto stream = runBuiltin(
+                  *cmd, env, closure, std::move(input), operands | ranges::views::drop(1))) {
+            return *stream;
+          }
+          return runChildProcess(env, closure, operands);
+        }
 
-                 // Stream expression (ignoring input)
-                 return operands | ranges::views::for_each([&env, closure](const Operand &value) {
-                          return std::visit(ToStream(env, closure), value);
-                        });
+        // Stream expression (ignoring input)
+        return operands | ranges::views::for_each([&env, closure](const Operand &value) {
+                 return std::visit(ToStream(env, closure), value);
                });
       };
-      return input_mode == InputMode::kValue ? build_stream(Stream(input))
-                                             : build_stream(ranges::views::single(input));
+      if (input_mode == InputMode::kValue) {
+        return Stream(input) | ranges::views::for_each([=](auto &&result) -> Stream {
+                 return result ? std::visit(run_cmd, std::move(*result)) : ranges::yield(result);
+               });
+      }
+      return ranges::views::single(input) | ranges::views::for_each(run_cmd);
     };
   }
 
@@ -133,7 +131,7 @@ struct CommandBuilder {
     return nullptr;
   }
 
-  static Stream runChildProcess(Env &env, const Closure &closure, ranges::range auto &&operands) {
+  static Stream runChildProcess(Env &env, const Closure &closure, ranges::range auto operands) {
 #if !__EMSCRIPTEN__
     std::array<int, 2> out_pipe, err_pipe;
 
