@@ -3,6 +3,7 @@
 #include <condition_variable>
 #include <csignal>
 #include <fstream>
+#include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
 #include <unistd.h>
 #include "stream_parser.h"
@@ -43,7 +44,19 @@ struct ProdEnv final : Env {
     std::unique_lock lock(_mutex);
     _stop = false;
     for (; !_stop && _cv.wait_until(lock, t) != std::cv_status::timeout;);
-    return !std::exchange(_stop, false);
+    return !_stop;
+  }
+  ssize_t read(int fd, google::protobuf::BytesValue &bytes) override {
+    std::unique_lock lock(_mutex);
+    _stop = false;
+    lock.unlock();
+    bytes.mutable_value()->resize(4096);
+    auto ret = ::read(fd, bytes.mutable_value()->data(), bytes.mutable_value()->size());
+    if (ret > 0) {
+      bytes.mutable_value()->resize(ret);
+    }
+    lock.lock();
+    return !_stop ? ret : -1;
   }
 
   void interrupt() {

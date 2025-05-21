@@ -21,26 +21,12 @@ struct Printer : Consumer {
   virtual ~Printer() = default;
   virtual bool print(size_t i, std::string_view value) = 0;
 
-  auto operator()(const google::protobuf::Value &value) -> bool {
-    if (!value.has_string_value()) {
-      return (*this)(static_cast<const google::protobuf::Message &>(value));
-    }
-    _scratch = value.string_value();
-    return true;
-  }
-  auto operator()(const google::protobuf::Message &value) -> bool {
-    _scratch.clear();
-    auto status = google::protobuf::util::MessageToJsonString(value, &_scratch);
-    if (!status.ok()) {
-      std::cerr << status.message() << std::endl;
-    }
-    return status.ok();
-  }
   auto operator()(size_t i, const Value &value) -> bool override {
-    return std::visit(*this, value) && print(i, _scratch);
+    auto str = std::visit(_to_str, value);
+    return str && print(i, *str);
   }
 
-  std::string _scratch;
+  ToString::Value _to_str;
 };
 
 struct SlicePrinter final : Printer {

@@ -31,17 +31,11 @@ inline auto lookupType(std::string_view name) {
 
 #endif
 
-inline std::string readAll(int fd) {
-  std::ostringstream all;
-  std::vector<char> buffer(4096);
-  for (ssize_t n; (n = read(fd, buffer.data(), buffer.size())) > 0;) {
-    all.write(buffer.data(), n);
-  }
-  return std::move(all).str();
-}
-
 inline auto exec(std::ranges::range auto args) {
   auto args_vec = args | ranges::to<std::vector<std::string>>;
+  if (args_vec[0].starts_with('^')) {
+    args_vec[0].erase(args_vec[0].begin());
+  }
   auto argv =
       ranges::views::concat(args_vec | ranges::views::transform([](auto &s) { return s.data(); }),
                             ranges::views::single(nullptr)) |
@@ -136,13 +130,13 @@ struct CommandBuilder {
     std::array<int, 2> out_pipe, err_pipe;
 
     if (pipe(out_pipe.data()) == -1 || pipe(err_pipe.data()) == -1) {
-      return ranges::views::single(std::unexpected(Error::kExecPipeError));
+      return ranges::yield(std::unexpected(Error::kExecPipeError));
     }
 
     auto args = lift(operands | ranges::views::transform(ToString::Operand(env, closure)));
 
     if (!args) {
-      return ranges::views::single(std::unexpected(args.error()));
+      return ranges::yield(std::unexpected(args.error()));
     }
 
     if (auto pid = fork(); pid == 0) {
@@ -158,25 +152,33 @@ struct CommandBuilder {
       close(out_pipe[1]);
       close(err_pipe[1]);
 
-      return ranges::views::generate_n(
-          [=] {
-            // todo: read in chunks
-            auto buffer = readAll(out_pipe[0]);
-            close(out_pipe[0]);
-            close(err_pipe[0]);
+      return ranges::views::generate(
+                 [&env, out_pipe, err_pipe, pid, bytes = google::protobuf::BytesValue()] mutable
+                 -> std::optional<Result<Value>> {
+                   if (auto n = env.read(out_pipe[0], bytes); n == 0) {
+                     close(out_pipe[0]);
+                     close(err_pipe[0]);
 
-            int status = 0;
-            waitpid(pid, &status, 0);
+                     // blocking, but stdout is already EOF
+                     int status = 0;
+                     waitpid(pid, &status, 0);
 
-            google::protobuf::Value value;
-            value.set_string_value(buffer);
-            return value;
-          },
-          1);
+                     if (status) {
+                       return std::unexpected(Error::kExecNonZeroStatus);
+                     }
+                     return std::nullopt;
+                   } else if (n < 0) {
+                     return std::unexpected(Error::kExecReadError);
+                   } else {
+                     return bytes;
+                   }
+                 }) |
+             ranges::views::take_while([](const auto &value) { return value.has_value(); }) |
+             ranges::views::transform([](auto &&value) { return std::move(*value); });
     }
-    return ranges::views::single(std::unexpected(Error::kExecForkError));
+    return ranges::yield(std::unexpected(Error::kExecForkError));
 #else
-    return ranges::views::single(std::unexpected(Error::kExecError));
+    return ranges::yield(std::unexpected(Error::kExecError));
 #endif
   }
 };

@@ -48,6 +48,8 @@ enum class Error : int {
   kExecError,
   kExecPipeError,
   kExecForkError,
+  kExecNonZeroStatus,
+  kExecReadError,
 
   kInvalidNumberOp,
   kInvalidBoolOp,
@@ -74,6 +76,7 @@ struct Env {
   virtual StreamFactory getEnv(StreamRef) const = 0;
   virtual void setEnv(StreamRef, StreamFactory) = 0;
   virtual bool sleepUntil(std::chrono::steady_clock::time_point) = 0;
+  virtual ssize_t read(int fd, google::protobuf::BytesValue &bytes) = 0;
 };
 
 struct Print {
