@@ -61,49 +61,55 @@ struct ValueVisitor {
 };
 
 struct CommandBuilder {
-  InputMode input_mode = InputMode::kStream;
-  Stream input;
+  // rename to Scope
   Closure closure;
+
+  StreamFactory upstream;
   std::vector<Operand> operands;
 
+  // rename to Closure
+  StreamFactory closure_fn;
+
+  // todo: mutex with closure?
   int record_level = 0;
-  bool freeze_operands = false;
   Print::Mode print_mode;
 
   StreamFactory factory(Env &env) && {
-    return [&env,
-            input_mode = input_mode,
-            input = std::move(input),
-            closure = std::move(closure),
-            operands = std::move(operands)] -> Stream {
-      auto run_cmd = [&env, closure, operands](IsExprValue auto input) -> Stream {
-        if (operands.empty()) {
-          return {};
-        }
-
-        if (auto cmd = frontCommand(closure, operands)) {
-          if (auto stream = runBuiltin(
-                  *cmd, env, closure, std::move(input), operands | ranges::views::drop(1))) {
-            return *stream;
-          }
-          return runChildProcess(env, closure, operands);
-        }
-
-        // Stream expression (ignoring input)
-        return operands | ranges::views::for_each([&env, closure](const Operand &value) {
-                 return std::visit(ToStream(env, closure), value);
+    if (closure_fn) {
+      assert(upstream);
+      return [upstream = std::move(upstream), closure_fn = std::move(closure_fn)](Stream input) {
+        return upstream(std::move(input)) | ranges::views::for_each([=](Result<Value> result) {
+                 return result ? closure_fn(ranges::yield(*result)) : ranges::yield(result);
                });
       };
-      if (input_mode == InputMode::kValue) {
-        return Stream(input) | ranges::views::for_each([=](auto &&result) -> Stream {
-                 return result ? std::visit(run_cmd, std::move(*result)) : ranges::yield(result);
-               });
-      }
-      return ranges::views::single(input) | ranges::views::for_each(run_cmd);
+    }
+    return [&env,
+            upstream = std::move(upstream),
+            closure = std::move(closure),
+            operands = std::move(operands)](Stream input) -> Stream {
+      return ranges::yield(upstream ? upstream(std::move(input)) : std::move(input)) |
+             ranges::views::for_each([&env, closure, operands](Stream input) -> Stream {
+               if (operands.empty()) {
+                 return {};
+               }
+
+               if (auto cmd = frontCommand(closure, operands)) {
+                 if (auto stream = runBuiltin(
+                         *cmd, env, closure, std::move(input), operands | ranges::views::drop(1))) {
+                   return *stream;
+                 }
+                 return runChildProcess(env, closure, operands);
+               }
+
+               // Stream expression (ignoring input)
+               return operands | ranges::views::for_each([&env, closure](const Operand &value) {
+                        return std::visit(ToStream(env, closure), value);
+                      });
+             });
     };
   }
 
-  Stream build(Env &env) && { return std::move(*this).factory(env)(); }
+  Stream build(Env &env) && { return std::move(*this).factory(env)(Stream()); }
   Operand operand(Env &env) && {
     if (operands.size() == 1) {
       if (auto operand = std::visit(ValueVisitor<Operand>(), operands[0])) {
@@ -125,7 +131,9 @@ struct CommandBuilder {
     return nullptr;
   }
 
-  static Stream runChildProcess(Env &env, const Closure &closure, ranges::range auto operands) {
+  static Stream runChildProcess(Env &env,
+                                const Closure &closure,
+                                const std::vector<Operand> &operands) {
 #if !__EMSCRIPTEN__
     std::array<int, 2> out_pipe, err_pipe;
 
@@ -287,7 +295,9 @@ struct ToJSON {
 
 auto toJSON(Env &env, std::vector<Operand> &&operands) {
   return [&env, operands = std::move(operands)](const Closure &closure) -> Expr::result_type {
-    return lift(operands | ranges::views::transform(ToJSON(env, closure)))
+    return lift(ranges::views::concat(
+                    ranges::yield(Word("{"sv)), operands, ranges::yield(Word("}"sv))) |
+                ranges::views::transform(ToJSON(env, closure)))
         .transform([](auto &&s) { return s | ranges::views::join | ranges::to<std::string>; })
         .and_then([](auto &&str) -> Expr::result_type {
           auto value = google::protobuf::Value();
@@ -311,7 +321,6 @@ struct StreamParserImpl final : StreamParser {
   using OpPred = std::function<bool(Token)>;
 
   auto toOperand(ranges::bidirectional_range auto token) -> Operand;
-  auto isClosure() -> bool;
   auto operatorCanBeApplied(std::ranges::range auto op) -> bool;
 
   auto performOp(const OpPred &pred) -> Result<void>;
@@ -320,12 +329,6 @@ struct StreamParserImpl final : StreamParser {
   std::stack<CommandBuilder> cmds;
   std::stack<Token> ops;
 };
-
-auto setClosureVar(Closure &closure, const Word &var) {
-  return ranges::views::transform([var = closure.add(var)](auto &&result) {
-    return std::move(result).transform([&](auto &&value) { return (*var = value); });
-  });
-}
 
 auto StreamParserImpl::parse(
     ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>> tokens)
@@ -368,17 +371,6 @@ auto StreamParserImpl::parse(
       // todo: build Value so that it can be used in ternary condition
       cmds.top().operands.push_back(std::move(rhs).operand(env));
 
-    } else if (token == "}" && cmds.top().record_level == 0) {
-      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
-        return errorStream(res.error());
-      }
-      ops.pop();
-      auto rhs = std::move(cmds.top());
-      cmds.pop();
-
-      rhs.freeze_operands = true;
-      cmds.top() = std::move(rhs);
-
     } else if (token == "}") {
       if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
         return errorStream(res.error());
@@ -387,19 +379,32 @@ auto StreamParserImpl::parse(
       auto rhs = std::move(cmds.top());
       cmds.pop();
 
-      rhs.operands.push_back(Word{token});
-      cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
+      if (rhs.record_level == 0) {
+        cmds.top().closure_fn = std::move(rhs).factory(env);
 
-    } else if (cmds.top().freeze_operands) {
+      } else {
+        cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
+      }
+
+    } else if (cmds.top().closure_fn) {
       return errorStream(Error::kMissingOperator);
 
     } else if (token == "->") {
       auto &lhs = cmds.top();
-      auto *closure_var = lhs.operands.size() == 1 ? std::get_if<Word>(&lhs.operands[0]) : nullptr;
-      if (!closure_var) {
+      auto *var_name = lhs.operands.size() == 1 ? std::get_if<Word>(&lhs.operands[0]) : nullptr;
+      if (!var_name || lhs.upstream) {
         return errorStream(Error::kInvalidClosureSignature);
       }
-      lhs.input = std::move(lhs.input) | setClosureVar(lhs.closure, *closure_var);
+      // todo: rename .closure to scope and pass via chain
+      lhs.upstream = [var = lhs.closure.add(std::move(*var_name))](Stream input) -> Stream {
+        auto results = input | ranges::views::take(1) | ranges::to<std::vector>;
+        if (results.empty() || !results.front()) {
+          return results.empty() ? errorStream(Error::kInvalidClosureSignature).first
+                                 : ranges::yield(results.front());
+        }
+        *var = results.front().value();
+        return {};
+      };
       lhs.operands.clear();
 
     } else if (token == "(") {
@@ -409,28 +414,19 @@ auto StreamParserImpl::parse(
 
       rhs.closure = lhs.closure;
 
-    } else if (token == "{" && isClosure()) {
-      // Produce the input to closure
-      if (auto res = performOp([&](const auto &op) { return op != "{" && op != "("; });
-          !res.has_value()) {
-        return errorStream(res.error());
-      }
-      ops.push(token);
-      auto &lhs = cmds.top();
-      auto &rhs = cmds.emplace();
-
-      rhs.input_mode = InputMode::kValue;
-      rhs.input = std::move(lhs.input);
-      rhs.closure = lhs.closure;
-
     } else if (token == "{") {
+      // If it looks like a closure, assume it is
+      auto is_closure = !ops.empty() && ops.top() == "|" && cmds.top().operands.empty();
+
       ops.push(token);
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
-      rhs.operands.push_back(Word{token});
       rhs.closure = lhs.closure;
-      rhs.record_level = lhs.record_level + 1;
+
+      if (!is_closure) {
+        rhs.record_level = lhs.record_level + 1;
+      }
 
     } else {
       cmds.top().operands.push_back(toOperand(token));
@@ -487,11 +483,6 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
     };
   }
   return Word{token};
-}
-
-auto StreamParserImpl::isClosure() -> bool {
-  return !(cmds.top().record_level || ops.empty() || ops.top() != "|" ||
-           !cmds.top().operands.empty());
 }
 
 auto StreamParserImpl::operatorCanBeApplied(std::ranges::range auto op) -> bool {
@@ -599,7 +590,7 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
       cmds.push(std::move(lhs));
 
     } else if (ops.top() == "|") {
-      rhs.input = std::move(lhs).build(env);
+      rhs.upstream = std::move(lhs).factory(env);
       cmds.push(std::move(rhs));
 
     } else {

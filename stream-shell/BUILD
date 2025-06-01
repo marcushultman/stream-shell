@@ -10,6 +10,7 @@ cc_library(
     "lift.h",
     "stream_parser.h",
     "stream_printer.h",
+    "stream_transform.h",
     "operand_op.h",
     "operand.h",
     "repl.h",

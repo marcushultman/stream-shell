@@ -1,7 +1,6 @@
 #pragma once
 
-#include "stream-shell/operand_op.h"
-#include "stream-shell/to_stream.h"
+#include "stream-shell/operand.h"
 
 inline auto lookupField(Value value, ranges::forward_range auto path) -> Value {
   if (ranges::empty(path)) {
@@ -25,16 +24,15 @@ inline auto lookupField(Value value, ranges::forward_range auto path) -> Value {
       });
 }
 
-inline Stream get(ToStream &&to_stream, Value &&value, auto args) {
+inline Operand get(Value value, auto args) {
+  if (ranges::size(args) != 1) {
+    return ranges::yield(std::unexpected(Error::kMissingOperand));
+  }
   Operand op = ranges::front(args);
   auto *word = std::get_if<Word>(&op);
   if (!word) {
-    return ranges::views::single(std::unexpected(Error::kMissingOperand));
+    return ranges::yield(std::unexpected(Error::kMissingOperand));
   }
-  return std::visit(to_stream,
-                    lookupField(std::move(value), word->value | ranges::views::split('.')));
-}
-
-inline Stream get(auto &&...) {
-  return ranges::views::single(std::unexpected(Error::kInvalidOp));
+  auto path = word->value | ranges::views::split('.');
+  return ranges::yield(lookupField(std::move(value), path));
 }

@@ -55,9 +55,9 @@ struct ToString final {
         return std::visit(*self, *it->second);
       } else if (auto it = _closure.env_overrides.find(ref.name);
                  it != _closure.env_overrides.end()) {
-        return (*self)(it->second());
+        return (*self)(it->second({}));
       } else if (auto stream = _env.getEnv(ref)) {
-        return (*self)(stream());
+        return (*self)(stream({}));
       }
       return std::unexpected(Error::kInvalidStreamRef);
     }

@@ -8,6 +8,7 @@
 #include "builtins/now.h"
 #include "builtins/prepend.h"
 #include "closure.h"
+#include "stream-shell/stream_transform.h"
 #include "to_stream.h"
 
 using namespace std::string_view_literals;
@@ -16,12 +17,16 @@ using namespace std::string_view_literals;
 inline std::optional<Stream> runBuiltin(Word cmd,
                                         Env &env,
                                         const Closure &closure,
-                                        IsExprValue auto &&input,
+                                        Stream &&input,
                                         ranges::bidirectional_range auto args) {
   if (cmd.value == "add"sv) {
-    return add(ToStream(env, closure), std::move(input), args);
+    return transform(ToStream(env, closure), std::move(input), [args](auto value) {
+      return add(std::move(value), args);
+    });
   } else if (cmd.value == "get"sv) {
-    return get(ToStream(env, closure), std::move(input), args);
+    return transform(ToStream(env, closure), std::move(input), [args](auto value) {
+      return get(std::move(value), args);
+    });
   } else if (cmd.value == "now"sv) {
     return now(env);
   } else if (cmd.value == "prepend"sv) {

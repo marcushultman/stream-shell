@@ -20,7 +20,7 @@ struct ProdEnv final : Env {
     } else if (auto *home_dir = getenv("HOME")) {
       load(std::string(home_dir) + "/.config");
     }
-    setEnv({"STSH_VERSION"sv}, [] {
+    setEnv({"STSH_VERSION"sv}, [](auto) {
       auto value = google::protobuf::Value();
       value.set_string_value(STSH_VERSION);
       return ranges::yield(value);
@@ -32,7 +32,7 @@ struct ProdEnv final : Env {
       return it->second;
     } else if (auto var = std::getenv((ref.name | ranges::to<std::string>).c_str())) {
       auto [stream, _] = _parser->parse(tokenize(std::string_view(var)));
-      return _cache[ref] = [stream] { return stream; };
+      return _cache[ref] = [stream](auto) { return stream; };
     }
     return {};
   }

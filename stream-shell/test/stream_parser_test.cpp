@@ -165,8 +165,7 @@ BOOST_AUTO_TEST_CASE(json) {
 }
 
 BOOST_AUTO_TEST_CASE(closure) {
-  // todo: add builtin
-  // BOOST_TEST(parse("1..2 | { add 1 }") == makeValues(2, 3), each);
+  BOOST_TEST(parse("1..2 | { add 1 }") == makeValues(2, 3), each);
   BOOST_TEST(parse("1..2 | { i -> i i * 2 }") == makeValues(1, 2, 2, 4), each);
   BOOST_TEST(parse(R"cmd(
     { name: `Albert` }
@@ -181,6 +180,11 @@ BOOST_AUTO_TEST_CASE(closure) {
 BOOST_AUTO_TEST_CASE(builtins) {
   // todo: fake exit
   // BOOST_TEST(parse("exit") == makeValues(2, 3), each);
+}
+
+BOOST_AUTO_TEST_CASE(closure_regression) {
+  BOOST_TEST(parse("1..3 | { 1 | 2 }") == makeValues(2, 2, 2), each);
+  BOOST_TEST(parse("1..3 | { 1..2 | 2 }") == makeValues(2, 2, 2), each);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

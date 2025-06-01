@@ -7,6 +7,7 @@
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
+#include "variant_ext.h"
 
 //
 
@@ -64,7 +65,8 @@ template <typename T>
 using Result = std::expected<T, Error>;
 
 using Stream = ranges::any_view<Result<Value>>;
-using StreamFactory = std::function<Stream()>;
+using ExprValue = variant_ext_t<Value, Stream>;
+using StreamFactory = std::function<Stream(Stream)>;
 
 struct StreamRef {
   Token name;
