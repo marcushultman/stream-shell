@@ -66,19 +66,18 @@ struct CommandBuilder {
   StreamFactory upstream;
   std::vector<Operand> operands;
 
-  // rename to Closure
-  StreamFactory closure_fn;
+  StreamFactory closure;
 
   // todo: mutex with closure?
   int record_level = 0;
   Print::Mode print_mode;
 
   StreamFactory factory(Env &env) && {
-    if (closure_fn) {
+    if (closure) {
       assert(upstream);
-      return [upstream = std::move(upstream), closure_fn = std::move(closure_fn)](Stream input) {
+      return [upstream = std::move(upstream), closure = std::move(closure)](Stream input) {
         return upstream(std::move(input)) | ranges::views::for_each([=](Result<Value> result) {
-                 return result ? closure_fn(ranges::yield(*result)) : ranges::yield(result);
+                 return result ? closure(ranges::yield(*result)) : ranges::yield(result);
                });
       };
     }
@@ -386,13 +385,13 @@ auto StreamParserImpl::parse(
       cmds.pop();
 
       if (rhs.record_level == 0) {
-        cmds.top().closure_fn = std::move(rhs).factory(env);
+        cmds.top().closure = std::move(rhs).factory(env);
 
       } else {
         cmds.top().operands.push_back(toJSON(env, rhs.scope, std::move(rhs.operands)));
       }
 
-    } else if (cmds.top().closure_fn) {
+    } else if (cmds.top().closure) {
       return errorStream(Error::kMissingOperator);
 
     } else if (token == "->") {
