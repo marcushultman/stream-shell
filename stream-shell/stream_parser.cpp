@@ -365,6 +365,16 @@ auto StreamParserImpl::parse(
       rhs.scope = lhs.scope;
       rhs.record_level = lhs.record_level;
 
+    } else if (cmds.top().closure) {
+      return errorStream(Error::kMissingOperator);
+
+    } else if (token == "(") {
+      ops.push(token);
+      auto &lhs = cmds.top();
+      auto &rhs = cmds.emplace();
+
+      rhs.scope = lhs.scope;
+
     } else if (token == ")") {
       if (auto res = performOp([](const auto &op) { return op != "("; }); !res.has_value()) {
         return errorStream(res.error());
@@ -373,8 +383,21 @@ auto StreamParserImpl::parse(
       auto rhs = std::move(cmds.top());
       cmds.pop();
 
-      // todo: build Value so that it can be used in ternary condition
       cmds.top().operands.push_back(std::move(rhs).operand(env));
+
+    } else if (token == "{") {
+      // If it looks like a closure, assume it is
+      auto is_closure = !ops.empty() && ops.top() == "|" && cmds.top().operands.empty();
+
+      ops.push(token);
+      auto &lhs = cmds.top();
+      auto &rhs = cmds.emplace();
+
+      rhs.scope = lhs.scope;
+
+      if (!is_closure) {
+        rhs.record_level = lhs.record_level + 1;
+      }
 
     } else if (token == "}") {
       if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
@@ -390,9 +413,6 @@ auto StreamParserImpl::parse(
       } else {
         cmds.top().operands.push_back(toJSON(env, rhs.scope, std::move(rhs.operands)));
       }
-
-    } else if (cmds.top().closure) {
-      return errorStream(Error::kMissingOperator);
 
     } else if (token == "->") {
       auto &lhs = cmds.top();
@@ -410,27 +430,6 @@ auto StreamParserImpl::parse(
         return {};
       };
       lhs.operands.clear();
-
-    } else if (token == "(") {
-      ops.push(token);
-      auto &lhs = cmds.top();
-      auto &rhs = cmds.emplace();
-
-      rhs.scope = lhs.scope;
-
-    } else if (token == "{") {
-      // If it looks like a closure, assume it is
-      auto is_closure = !ops.empty() && ops.top() == "|" && cmds.top().operands.empty();
-
-      ops.push(token);
-      auto &lhs = cmds.top();
-      auto &rhs = cmds.emplace();
-
-      rhs.scope = lhs.scope;
-
-      if (!is_closure) {
-        rhs.record_level = lhs.record_level + 1;
-      }
 
     } else {
       cmds.top().operands.push_back(toOperand(token));
