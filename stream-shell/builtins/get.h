@@ -29,7 +29,7 @@ inline auto lookupField(Value input, ranges::forward_range auto path) -> Stream 
   return ranges::yield(std::move(*value));
 }
 
-inline Operand get(Value value, auto args) {
+inline Stream get(Value value, auto args) {
   if (ranges::size(args) != 1) {
     return ranges::yield(std::unexpected(Error::kMissingOperand));
   }

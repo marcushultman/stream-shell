@@ -9,7 +9,8 @@
 using namespace std::string_literals;
 
 /**
- * Used to serialized external command args and interpolating string literals.
+ * Used to serialized external command args, interpolating string literals, and to print/write
+ * command output.
  */
 struct ToString final {
   ToString() = delete;

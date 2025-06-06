@@ -2,7 +2,7 @@
 
 #include "stream-shell/operand_op.h"
 
-inline Operand add(Value value, auto args) {
+inline Stream add(Value value, auto args) {
   if (ranges::size(args) != 1) {
     return ranges::yield(std::unexpected(Error::kMissingOperand));
   }

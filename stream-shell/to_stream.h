@@ -4,6 +4,9 @@
 #include "operand.h"
 #include "stream_parser.h"
 
+/**
+ * Used to flatten Operands into a Stream.
+ */
 struct ToStream {
   ToStream(const Env &env, const Closure &closure) : _env{env}, _closure{closure} {}
 

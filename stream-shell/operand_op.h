@@ -1,7 +1,5 @@
 #pragma once
 
-#include <type_traits>
-#include "closure.h"
 #include "operand.h"
 #include "stream_parser.h"
 #include "value_op.h"
@@ -87,31 +85,14 @@ struct ValueTransform {
  private:
   auto eval(const Stream &s) -> Stream {
     return Stream(s) | ranges::views::for_each([value_t = _value_t](const Result<Value> &result) {
-             return result
-                 .transform([&](const Value &value) {
-                   return std::visit([&](const auto &value) { return value_t(value); }, value);
-                 })
-                 .or_else([](Error err) -> Result<Stream> {
-                   return ranges::yield(std::unexpected(err));
-                 })
-                 .value();
+             return result ? std::visit(value_t, *result) : ranges::yield(result);
            });
   }
 
   auto eval(const Result<Value> &lhs, const Result<Value> &rhs) -> Stream {
-    return rhs
-        .and_then([&](const Value &rhs) {
-          return lhs
-              .transform([&](const Value &lhs) {
-                return std::visit(
-                    [&](const auto &lhs, const auto &rhs) { return _value_t(lhs, rhs); }, lhs, rhs);
-              })
-              .or_else([&](Error err) -> Result<Stream> {
-                return std::visit([&](const auto &rhs) { return _value_t(err, rhs); }, rhs);
-              });
-        })
-        .or_else([](Error err) -> Result<Stream> { return ranges::yield(std::unexpected(err)); })
-        .value();
+    return rhs ? lhs ? std::visit(_value_t, *lhs, *rhs)
+                     : std::visit([&](auto &rhs) { return _value_t(lhs.error(), rhs); }, *rhs)
+               : ranges::yield(rhs);
   }
   auto eval(const Stream &lhs, const IsValue auto &rhs) -> Stream {
     return eval(lhs, Stream(ranges::yield(rhs)));

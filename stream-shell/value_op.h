@@ -1,6 +1,5 @@
 #pragma once
 
-#include "operand.h"
 #include "stream_parser.h"
 
 #include <google/protobuf/any.pb.h>

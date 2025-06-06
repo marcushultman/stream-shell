@@ -13,20 +13,15 @@
 
 using namespace std::string_view_literals;
 
-// todo: pass args here and return Operand (since builtins may fail)
 inline std::optional<Stream> runBuiltin(Word cmd,
                                         Env &env,
                                         const Closure &closure,
                                         Stream &&input,
                                         ranges::bidirectional_range auto args) {
   if (cmd.value == "add"sv) {
-    return transform(ToStream(env, closure), std::move(input), [args](auto value) {
-      return add(std::move(value), args);
-    });
+    return std::move(input) | for_each([args](auto value) { return add(std::move(value), args); });
   } else if (cmd.value == "get"sv) {
-    return transform(ToStream(env, closure), std::move(input), [args](auto value) {
-      return get(std::move(value), args);
-    });
+    return std::move(input) | for_each([args](auto value) { return get(std::move(value), args); });
   } else if (cmd.value == "now"sv) {
     return now(env);
   } else if (cmd.value == "prepend"sv) {
