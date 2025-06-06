@@ -10,10 +10,10 @@
 #include <range/v3/all.hpp>
 #include <unistd.h>
 #include "builtin.h"
-#include "closure.h"
 #include "lift.h"
 #include "operand.h"
 #include "operand_op.h"
+#include "scope.h"
 #include "to_stream.h"
 #include "to_string.h"
 #include "util/trim.h"
@@ -61,8 +61,7 @@ struct ValueVisitor {
 };
 
 struct CommandBuilder {
-  // rename to Scope
-  Closure closure;
+  Scope scope;
 
   StreamFactory upstream;
   std::vector<Operand> operands;
@@ -85,25 +84,25 @@ struct CommandBuilder {
     }
     return [&env,
             upstream = std::move(upstream),
-            closure = std::move(closure),
+            scope = std::move(scope),
             operands = std::move(operands)](Stream input) -> Stream {
       return ranges::yield(upstream ? upstream(std::move(input)) : std::move(input)) |
-             ranges::views::for_each([&env, closure, operands](Stream input) -> Stream {
+             ranges::views::for_each([&env, scope, operands](Stream input) -> Stream {
                if (operands.empty()) {
                  return {};
                }
 
-               if (auto cmd = frontCommand(closure, operands)) {
+               if (auto cmd = frontCommand(scope, operands)) {
                  if (auto stream = runBuiltin(
-                         *cmd, env, closure, std::move(input), operands | ranges::views::drop(1))) {
+                         *cmd, env, scope, std::move(input), operands | ranges::views::drop(1))) {
                    return *stream;
                  }
-                 return runChildProcess(env, closure, operands);
+                 return runChildProcess(env, scope, operands);
                }
 
                // Stream expression (ignoring input)
-               return operands | ranges::views::for_each([&env, closure](const Operand &value) {
-                        return std::visit(ToStream(env, closure), value);
+               return operands | ranges::views::for_each([&env, scope](const Operand &value) {
+                        return std::visit(ToStream(env, scope), value);
                       });
              });
     };
@@ -124,15 +123,15 @@ struct CommandBuilder {
   }
 
  private:
-  static const Word *frontCommand(const Closure &closure, const std::vector<Operand> &operands) {
+  static const Word *frontCommand(const Scope &scope, const std::vector<Operand> &operands) {
     if (auto *word = std::get_if<Word>(&operands[0])) {
-      return closure.vars.contains(*word) ? nullptr : word;
+      return scope.vars.contains(*word) ? nullptr : word;
     }
     return nullptr;
   }
 
   static Stream runChildProcess(Env &env,
-                                const Closure &closure,
+                                const Scope &scope,
                                 const std::vector<Operand> &operands) {
 #if !__EMSCRIPTEN__
     std::array<int, 2> out_pipe, err_pipe;
@@ -141,7 +140,7 @@ struct CommandBuilder {
       return ranges::yield(std::unexpected(Error::kExecPipeError));
     }
 
-    auto args = lift(operands | ranges::views::transform(ToString::Operand(env, closure)));
+    auto args = lift(operands | ranges::views::transform(ToString::Operand(env, scope)));
 
     if (!args) {
       return ranges::yield(std::unexpected(args.error()));
@@ -194,7 +193,7 @@ struct CommandBuilder {
 //
 
 Word *isFilePipe(auto op, CommandBuilder &rhs) {
-  return op == ">" && rhs.record_level == 0 && rhs.closure.vars.empty() && rhs.operands.size() == 1
+  return op == ">" && rhs.record_level == 0 && rhs.scope.vars.empty() && rhs.operands.size() == 1
              ? std::get_if<Word>(&rhs.operands[0])
              : nullptr;
 }
@@ -253,7 +252,7 @@ auto isOperator(const CommandBuilder &lhs, std::ranges::range auto op) {
  * are joined and parsed into a Value struct.
  */
 struct ToJSON {
-  ToJSON(Env &env, Closure closure) : _to_str{env, closure} {}
+  ToJSON(Env &env, Scope scope) : _to_str{env, std::move(scope)} {}
 
   auto operator()(const google::protobuf::Message &val) const -> Result<std::string> {
     return _to_str(val);
@@ -297,13 +296,13 @@ struct ToJSON {
   ToString::Operand _to_str;
 };
 
-Stream toJSON(Env &env, Closure closure, std::vector<Operand> &&operands) {
+Stream toJSON(Env &env, Scope scope, std::vector<Operand> &&operands) {
   return ranges::yield(
       lift(ranges::yield(0) | ranges::views::for_each([operands = std::move(operands)](auto) {
              return ranges::views::concat(
                  ranges::yield(Word("{"sv)), operands, ranges::yield(Word("}"sv)));
            }) |
-           ranges::views::transform(ToJSON(env, std::move(closure))))
+           ranges::views::transform(ToJSON(env, std::move(scope))))
           .transform([](auto &&s) { return s | ranges::views::join | ranges::to<std::string>; })
           .and_then([](auto &&str) -> Result<Value> {
             auto value = google::protobuf::Value();
@@ -364,7 +363,7 @@ auto StreamParserImpl::parse(
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
-      rhs.closure = lhs.closure;
+      rhs.scope = lhs.scope;
       rhs.record_level = lhs.record_level;
 
     } else if (token == ")") {
@@ -390,7 +389,7 @@ auto StreamParserImpl::parse(
         cmds.top().closure_fn = std::move(rhs).factory(env);
 
       } else {
-        cmds.top().operands.push_back(toJSON(env, rhs.closure, std::move(rhs.operands)));
+        cmds.top().operands.push_back(toJSON(env, rhs.scope, std::move(rhs.operands)));
       }
 
     } else if (cmds.top().closure_fn) {
@@ -402,8 +401,7 @@ auto StreamParserImpl::parse(
       if (!var_name || lhs.upstream) {
         return errorStream(Error::kInvalidClosureSignature);
       }
-      // todo: rename .closure to scope and pass via chain
-      lhs.upstream = [var = lhs.closure.add(std::move(*var_name))](Stream input) -> Stream {
+      lhs.upstream = [var = lhs.scope.add(std::move(*var_name))](Stream input) -> Stream {
         auto results = input | ranges::views::take(1) | ranges::to<std::vector>;
         if (results.empty() || !results.front()) {
           return results.empty() ? errorStream(Error::kInvalidClosureSignature).first
@@ -419,7 +417,7 @@ auto StreamParserImpl::parse(
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
-      rhs.closure = lhs.closure;
+      rhs.scope = lhs.scope;
 
     } else if (token == "{") {
       // If it looks like a closure, assume it is
@@ -429,7 +427,7 @@ auto StreamParserImpl::parse(
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
-      rhs.closure = lhs.closure;
+      rhs.scope = lhs.scope;
 
       if (!is_closure) {
         rhs.record_level = lhs.record_level + 1;
@@ -450,13 +448,13 @@ auto StreamParserImpl::parse(
 }
 
 auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Operand {
-  auto &closure = cmds.top().closure;
+  auto &scope = cmds.top().scope;
 
   if (ranges::starts_with(token, "$"sv)) {
     return StreamRef(token | ranges::views::drop(1));
   }
   if (ranges::starts_with(token, "`"sv)) {
-    auto to_str = ToString::Operand(env, closure, true);
+    auto to_str = ToString::Operand(env, scope, true);
     return ranges::yield(lift(trim(token, 1, 1) | ranges::views::split(' ') |
                               ranges::views::transform([&](auto &&token) -> Result<std::string> {
                                 if (ranges::starts_with(token, "$"sv)) {
@@ -483,7 +481,7 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
   auto path = token | ranges::views::split('.');
 
   // todo: fix closure variable in record
-  if (auto it = closure.vars.find(Word{ranges::front(path)}); it != closure.vars.end()) {
+  if (auto it = scope.vars.find(Word{ranges::front(path)}); it != scope.vars.end()) {
     return ranges::yield(0) | ranges::views::transform([var = it->second](auto) { return *var; }) |
            ranges::views::for_each([path = path | ranges::views::drop(1)](auto value) {
              return lookupField(std::move(value), path);
@@ -588,7 +586,7 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
           operands.erase(operands.begin());
           rhs.operands.resize(1);
         }
-        lhs.closure.env_overrides[*var] = std::move(rhs).factory(env);
+        lhs.scope.env_overrides[*var] = std::move(rhs).factory(env);
         lhs.operands = operands;
 
       } else {

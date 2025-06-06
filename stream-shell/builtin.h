@@ -7,17 +7,14 @@
 #include "builtins/get.h"
 #include "builtins/now.h"
 #include "builtins/prepend.h"
-#include "closure.h"
+#include "scope.h"
 #include "stream-shell/stream_transform.h"
 #include "to_stream.h"
 
 using namespace std::string_view_literals;
 
-inline std::optional<Stream> runBuiltin(Word cmd,
-                                        Env &env,
-                                        const Closure &closure,
-                                        Stream &&input,
-                                        ranges::bidirectional_range auto args) {
+inline std::optional<Stream> runBuiltin(
+    Word cmd, Env &env, const Scope &scope, Stream &&input, ranges::bidirectional_range auto args) {
   if (cmd.value == "add"sv) {
     return std::move(input) | for_each([args](auto value) { return add(std::move(value), args); });
   } else if (cmd.value == "get"sv) {
@@ -25,7 +22,7 @@ inline std::optional<Stream> runBuiltin(Word cmd,
   } else if (cmd.value == "now"sv) {
     return now(env);
   } else if (cmd.value == "prepend"sv) {
-    return prepend(ToStream(env, closure), std::move(input), args);
+    return prepend(ToStream(env, scope), std::move(input), args);
   } else if (cmd.value == "exit"sv) {
     return ranges::views::generate([] { return exit(0), Value(); });
   }

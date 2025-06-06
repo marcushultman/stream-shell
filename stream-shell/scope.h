@@ -12,7 +12,7 @@ struct Word {
   friend bool operator<(const Token &lhs, const Word &rhs) { return lhs < rhs.value; }
 };
 
-struct Closure {
+struct Scope {
   std::map<Word, StreamFactory, std::less<>> env_overrides;
   std::map<Word, std::shared_ptr<Value>, std::less<>> vars;
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "closure.h"
+#include "scope.h"
 #include "stream_parser.h"
 #include "variant_ext.h"
 

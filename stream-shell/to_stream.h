@@ -1,14 +1,14 @@
 #pragma once
 
-#include "closure.h"
 #include "operand.h"
+#include "scope.h"
 #include "stream_parser.h"
 
 /**
  * Used to flatten Operands into a Stream.
  */
 struct ToStream {
-  ToStream(const Env &env, const Closure &closure) : _env{env}, _closure{closure} {}
+  ToStream(const Env &env, const Scope &scope) : _env{env}, _scope{scope} {}
 
   auto operator()(const IsValue auto &value) const -> Stream { return ranges::yield(value); }
   auto operator()(const google::protobuf::Value &value) const -> Stream {
@@ -21,7 +21,7 @@ struct ToStream {
   }
   auto operator()(const Stream &stream) const { return stream; }
   auto operator()(const StreamRef &ref) const -> Stream {
-    if (auto it = _closure.env_overrides.find(ref.name); it != _closure.env_overrides.end()) {
+    if (auto it = _scope.env_overrides.find(ref.name); it != _scope.env_overrides.end()) {
       return it->second({});
     } else if (auto stream = _env.getEnv(ref)) {
       return stream({});
@@ -37,5 +37,5 @@ struct ToStream {
   auto operator()(const Operand &operand) const -> Stream { return std::visit(*this, operand); }
 
   const Env &_env;
-  const Closure &_closure;
+  const Scope &_scope;
 };
