@@ -35,8 +35,8 @@ struct ToString final {
   };
 
   struct Operand : Value {
-    Operand(const Env &env, const Closure &closure, bool escape_var = false)
-        : _env{env}, _closure{closure}, _escape_var{escape_var} {}
+    Operand(const Env &env, Closure closure, bool escape_var = false)
+        : _env{env}, _closure{std::move(closure)}, _escape_var{escape_var} {}
 
     using Value::operator();
 
@@ -64,23 +64,15 @@ struct ToString final {
     auto operator()(const Word &word) const -> Result {
       return Token(word.value) | ranges::to<std::string>;
     }
-    auto operator()(auto *self, const Expr &value) const -> Result {
-      if (auto result = value(_closure)) {
-        return std::visit(*self, std::move(*result));
-      } else {
-        return std::unexpected(result.error());
-      }
-    }
 
     //
     auto operator()(const StreamRef &ref) const -> Result { return (*this)(this, ref); }
     auto operator()(Stream stream) const -> Result { return (*this)(this, stream); }
-    auto operator()(const Expr &value) const -> Result { return (*this)(this, value); }
 
     auto operator()(const ::Operand &operand) const -> Result { return std::visit(*this, operand); }
 
     const Env &_env;
-    const Closure &_closure;
+    const Closure _closure;
     bool _escape_var;
   };
 };

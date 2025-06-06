@@ -36,22 +36,28 @@ inline bool isTruthy(Stream stream) {
 }
 
 struct TernaryCondition {
-  auto operator()(const auto &lhs, const auto &rhs) {
-    return isTruthy(lhs) ? Expr::result_type(rhs) : std::unexpected(Error::kCoalesceSkip);
+  auto operator()(const IsValue auto &lhs, const auto &rhs) -> Stream {
+    return isTruthy(lhs) ? Stream(ranges::yield(rhs))
+                         : ranges::yield(std::unexpected(Error::kCoalesceSkip));
   }
-  auto operator()(Error err, const auto &) { return std::unexpected(err); }
+  auto operator()(Error err, const auto &) -> Stream { return ranges::yield(std::unexpected(err)); }
 };
 
 struct TernaryEvaluation {
-  auto operator()(const auto &lhs, const auto &) -> Expr::result_type { return lhs; }
-  auto operator()(Error err, const auto &rhs) -> Expr::result_type {
-    return err == Error::kCoalesceSkip ? Expr::result_type(rhs) : std::unexpected(err);
+  auto operator()(const IsValue auto &lhs, const IsValue auto &) -> Stream {
+    return ranges::yield(lhs);
+  }
+  auto operator()(Error err, const IsValue auto &rhs) -> Stream {
+    return err == Error::kCoalesceSkip ? Stream(ranges::yield(rhs))
+                                       : ranges::yield(std::unexpected(err));
   }
 };
 
 struct Iota {
-  auto operator()(int64_t from) { return ranges::views::iota(from) | toNumber; }
-  auto operator()(int64_t from, int64_t to) { return ranges::views::iota(from, to + 1) | toNumber; }
+  auto operator()(int64_t from) -> Stream { return ranges::views::iota(from) | toNumber; }
+  auto operator()(int64_t from, int64_t to) -> Stream {
+    return ranges::views::iota(from, to + 1) | toNumber;
+  }
 
  private:
   static constexpr auto toNumber = ranges::views::transform([](auto i) {
@@ -62,9 +68,9 @@ struct Iota {
 };
 
 struct Background {
-  auto operator()(const auto &) {
+  auto operator()(const auto &) -> Stream {
     // todo: implement backgrounding
-    return std::unexpected(Error::kInvalidOp);
+    return ranges::yield(std::unexpected(Error::kInvalidOp));
   }
 };
 
@@ -75,48 +81,52 @@ template <typename ValueT>
 struct ValueTransform {
   ValueTransform(ValueT &&value_t) : _value_t(std::move(value_t)) {}
 
-  auto operator()(const IsExprValue auto &...v) -> Operand {
-    if (auto result = _value_t(v...)) {
-      return std::visit([](auto value) -> Operand { return value; }, *result);
-    } else {
-      return [result](auto &) { return result; };
-    }
-  }
-  auto operator()(const auto &...v) -> Operand { return eval(v...); }
+  auto operator()(const IsValue auto &...v) -> Stream { return _value_t(v...); }
+  auto operator()(const auto &...v) -> Stream { return eval(v...); }
 
  private:
-  auto eval(const Expr &v) -> Expr {
-    return [value_t = _value_t, v](const Closure &closure) mutable {
-      return v(closure).and_then(
-          [&](auto v) { return std::visit([&](auto v) { return value_t(v); }, v); });
-    };
+  auto eval(const Stream &s) -> Stream {
+    return Stream(s) | ranges::views::for_each([value_t = _value_t](const Result<Value> &result) {
+             return result
+                 .transform([&](const Value &value) {
+                   return std::visit([&](const auto &value) { return value_t(value); }, value);
+                 })
+                 .or_else([](Error err) -> Result<Stream> {
+                   return ranges::yield(std::unexpected(err));
+                 })
+                 .value();
+           });
   }
 
-  auto eval(const Expr &lhs, const IsValue auto &rhs) -> Expr {
-    return [lhs, value_t = _value_t, rhs](const Closure &closure) mutable {
-      return lhs(closure)
-          .and_then([&](auto lhs) {
-            return std::visit([&](IsExprValue auto lhs) { return value_t(lhs, rhs); }, lhs);
-          })
-          .or_else([&](Error err) { return value_t(err, rhs); });
-    };
+  auto eval(const Result<Value> &lhs, const Result<Value> &rhs) -> Stream {
+    return rhs
+        .and_then([&](const Value &rhs) {
+          return lhs
+              .transform([&](const Value &lhs) {
+                return std::visit(
+                    [&](const auto &lhs, const auto &rhs) { return _value_t(lhs, rhs); }, lhs, rhs);
+              })
+              .or_else([&](Error err) -> Result<Stream> {
+                return std::visit([&](const auto &rhs) { return _value_t(err, rhs); }, rhs);
+              });
+        })
+        .or_else([](Error err) -> Result<Stream> { return ranges::yield(std::unexpected(err)); })
+        .value();
   }
-  auto eval(const IsValue auto &lhs, const Expr &rhs) -> Expr {
-    return [lhs, value_t = _value_t, rhs](const Closure &closure) mutable {
-      return rhs(closure).and_then(
-          [&](auto rhs) { return std::visit([&](auto &rhs) { return value_t(lhs, rhs); }, rhs); });
-    };
+  auto eval(const Stream &lhs, const IsValue auto &rhs) -> Stream {
+    return eval(lhs, Stream(ranges::yield(rhs)));
   }
-  auto eval(const Expr &lhs, const Expr &rhs) -> Expr {
-    return [lhs, op = *this, rhs](const Closure &closure) mutable {
-      return rhs(closure).and_then([&](auto rhs) {
-        return std::visit([&](auto rhs) { return op.eval(lhs, rhs)(closure); }, rhs);
-      });
-    };
+  auto eval(const IsValue auto &lhs, const Stream &rhs) -> Stream {
+    return eval(Stream(ranges::yield(lhs)), rhs);
   }
-  auto eval(const auto &...) -> Expr {
-    return [](auto &) { return std::unexpected(Error::kInvalidOp); };
+  auto eval(const Stream &lhs, const Stream &rhs) -> Stream {
+    return ranges::views::zip(Stream(lhs), Stream(rhs)) |
+           ranges::views::for_each([op = *this](const auto &results) mutable -> Stream {
+             auto &[lhs, rhs] = results;
+             return op.eval(lhs, rhs);
+           });
   }
+  auto eval(const auto &...) -> Stream { return ranges::yield(std::unexpected(Error::kInvalidOp)); }
 
   ValueT _value_t;
 };
@@ -125,17 +135,17 @@ struct OperandOp {
   OperandOp(Token op) : op{op} {}
 
   auto operator()(const auto &v) const -> Operand {
-    return ValueTransform([&](const auto &v) -> Expr::result_type {
+    return ValueTransform([&](const auto &v) -> Stream {
       if (op == "+") return ValueOp<std::identity>()(v);
       if (op == "-") return ValueOp<std::negate<>>()(v);
       if (op == "!") return ValueOp<std::logical_not<>, bool>()(v);
       if (op == "..") return ValueOp<Iota>()(v);
       if (op == "&") return Background()(v);
-      return std::unexpected(Error::kInvalidOp);
+      return ranges::yield(std::unexpected(Error::kInvalidOp));
     })(v);
   }
   auto operator()(const auto &...v) const -> Operand {
-    return ValueTransform([op = op](const auto &...v) -> Expr::result_type {
+    return ValueTransform([op = op](const auto &...v) -> Stream {
       if (op == "||") return ValueOp<std::logical_or<>, bool>()(v...);
       if (op == "&&") return ValueOp<std::logical_and<>, bool>()(v...);
       if (op == "==") return ValueOp<std::equal_to<>, bool>()(v...);
@@ -151,7 +161,7 @@ struct OperandOp {
       if (op == "%") return ValueOp<std::modulus<>>()(v...);
       if (op == "?") return TernaryCondition()(v...);
       if (op == "..") return ValueOp<Iota>()(v...);
-      return std::unexpected(Error::kInvalidOp);
+      return ranges::yield(std::unexpected(Error::kInvalidOp));
     })(v...);
   }
 

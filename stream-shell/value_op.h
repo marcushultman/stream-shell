@@ -12,9 +12,7 @@
  */
 template <typename Op, typename Type = void>
 struct ValueOp {
-  using Result = Expr::result_type;
-
-  Result operator()(const google::protobuf::Value &val) {
+  Stream operator()(const google::protobuf::Value &val) {
     google::protobuf::Value result;
     if (val.has_number_value()) {
       if constexpr (std::is_invocable_r_v<bool, Op, bool> && std::is_same_v<Type, bool>) {
@@ -27,7 +25,7 @@ struct ValueOp {
         return Op()(int64_t(val.number_value()));
 
       } else {
-        return std::unexpected(Error::kInvalidNumberOp);
+        return ranges::yield(std::unexpected(Error::kInvalidNumberOp));
       }
 
     } else if (val.has_bool_value()) {
@@ -35,7 +33,7 @@ struct ValueOp {
         result.set_bool_value(Op()(val.bool_value()));
 
       } else {
-        return std::unexpected(Error::kInvalidBoolOp);
+        return ranges::yield(std::unexpected(Error::kInvalidBoolOp));
       }
 
     } else if (val.has_string_value()) {
@@ -43,16 +41,16 @@ struct ValueOp {
         result.set_bool_value(Op()(!val.string_value().empty()));
 
       } else {
-        return std::unexpected(Error::kInvalidStringOp);
+        return ranges::yield(std::unexpected(Error::kInvalidStringOp));
       }
 
     } else {
-      return std::unexpected(Error::kInvalidOp);
+      return ranges::yield(std::unexpected(Error::kInvalidOp));
     }
-    return result;
+    return ranges::yield(result);
   }
 
-  Result operator()(const google::protobuf::Value &lhs, const google::protobuf::Value &rhs) {
+  Stream operator()(const google::protobuf::Value &lhs, const google::protobuf::Value &rhs) {
     google::protobuf::Value result;
     if (lhs.has_number_value() && rhs.has_number_value()) {
       if constexpr (std::is_invocable_r_v<bool, Op, bool, bool> && std::is_same_v<Type, bool>) {
@@ -68,7 +66,7 @@ struct ValueOp {
         return Op()(int64_t(lhs.number_value()), int64_t(rhs.number_value()));
 
       } else {
-        return std::unexpected(Error::kInvalidNumberOp);
+        return ranges::yield(std::unexpected(Error::kInvalidNumberOp));
       }
 
     } else if (lhs.has_bool_value() && rhs.has_bool_value()) {
@@ -76,7 +74,7 @@ struct ValueOp {
         result.set_bool_value(Op()(lhs.bool_value(), rhs.bool_value()));
 
       } else {
-        return std::unexpected(Error::kInvalidBoolOp);
+        return ranges::yield(std::unexpected(Error::kInvalidBoolOp));
       }
 
     } else if (lhs.has_string_value() && rhs.has_string_value()) {
@@ -87,15 +85,17 @@ struct ValueOp {
         result.set_bool_value(Op()(lhs.string_value(), rhs.string_value()));
 
       } else {
-        return std::unexpected(Error::kInvalidStringOp);
+        return ranges::yield(std::unexpected(Error::kInvalidStringOp));
       }
 
     } else {
-      return std::unexpected(Error::kInvalidOp);
+      return ranges::yield(std::unexpected(Error::kInvalidOp));
     }
-    return result;
+    return ranges::yield(result);
   }
 
-  Result operator()(const Error &err, const auto &...) { return std::unexpected(err); }
-  Result operator()(const auto &...) { return std::unexpected(Error::kInvalidOp); }
+  Stream operator()(const Error &err, const auto &...) {
+    return ranges::yield(std::unexpected(err));
+  }
+  Stream operator()(const auto &...) { return ranges::yield(std::unexpected(Error::kInvalidOp)); }
 };

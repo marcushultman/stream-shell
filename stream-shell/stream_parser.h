@@ -65,7 +65,6 @@ template <typename T>
 using Result = std::expected<T, Error>;
 
 using Stream = ranges::any_view<Result<Value>>;
-using ExprValue = variant_ext_t<Value, Stream>;
 using StreamFactory = std::function<Stream(Stream)>;
 
 struct StreamRef {

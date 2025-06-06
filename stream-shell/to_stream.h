@@ -30,13 +30,6 @@ struct ToStream {
     value.set_string_value(Token(word.value) | ranges::to<std::string>);
     return ranges::yield(std::move(value));
   }
-  auto operator()(const Expr &value) const -> Stream {
-    if (auto result = value(_closure)) {
-      return std::visit(*this, std::move(*result));
-    } else {
-      return ranges::yield(std::unexpected(result.error()));
-    }
-  }
 
   auto operator()(const Operand &operand) const -> Stream { return std::visit(*this, operand); }
 

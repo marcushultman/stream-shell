@@ -253,7 +253,7 @@ auto isOperator(const CommandBuilder &lhs, std::ranges::range auto op) {
  * are joined and parsed into a Value struct.
  */
 struct ToJSON {
-  ToJSON(Env &env, const Closure &closure) : _to_str{env, closure} {}
+  ToJSON(Env &env, Closure closure) : _to_str{env, closure} {}
 
   auto operator()(const google::protobuf::Message &val) const -> Result<std::string> {
     return _to_str(val);
@@ -265,26 +265,30 @@ struct ToJSON {
                [&](Result<google::protobuf::Value> &&list, auto &&result) {
                  return std::move(list).and_then([&](auto &&list) {
                    return std::move(result).transform([&](auto &&value) -> google::protobuf::Value {
-                     auto &list_value = *list.mutable_list_value()->add_values();
+                     auto &item = *list.mutable_list_value()->add_values();
 
                      if (auto *bytes = std::get_if<google::protobuf::BytesValue>(&value)) {
                        // todo: base64 encode
-                       list_value.set_string_value(bytes->Utf8DebugString());
+                       item.set_string_value(bytes->Utf8DebugString());
                      } else if (auto *pvalue = std::get_if<google::protobuf::Value>(&value)) {
-                       list_value = std::move(*pvalue);
+                       item = std::move(*pvalue);
                      } else if (auto *any = std::get_if<google::protobuf::Any>(&value)) {
                        // todo: something
-                       list_value.set_string_value(any->Utf8DebugString());
+                       item.set_string_value(any->Utf8DebugString());
                      }
                      return list;
                    });
                  });
                })
-        .and_then([&](auto &&list) { return (*this)(std::forward<decltype(list)>(list)); });
+        .and_then([&](auto &&list) {
+          if (list.list_value().values_size() == 1) {
+            return (*this)(list.list_value().values(0));
+          }
+          return (*this)(std::forward<decltype(list)>(list));
+        });
   }
   auto operator()(const StreamRef &ref) const -> Result<std::string> { return _to_str(this, ref); }
   auto operator()(const Word &word) const -> Result<std::string> { return _to_str(word); }
-  auto operator()(const Expr &value) const -> Result<std::string> { return _to_str(this, value); }
 
   auto operator()(const Operand &operand) const -> Result<std::string> {
     return std::visit(*this, operand);
@@ -293,20 +297,23 @@ struct ToJSON {
   ToString::Operand _to_str;
 };
 
-auto toJSON(Env &env, std::vector<Operand> &&operands) {
-  return [&env, operands = std::move(operands)](const Closure &closure) -> Expr::result_type {
-    return lift(ranges::views::concat(
-                    ranges::yield(Word("{"sv)), operands, ranges::yield(Word("}"sv))) |
-                ranges::views::transform(ToJSON(env, closure)))
-        .transform([](auto &&s) { return s | ranges::views::join | ranges::to<std::string>; })
-        .and_then([](auto &&str) -> Expr::result_type {
-          auto value = google::protobuf::Value();
-          if (google::protobuf::json::JsonStringToMessage(str, value.mutable_struct_value()).ok()) {
-            return value;
-          }
-          return std::unexpected(Error::kJsonError);
-        });
-  };
+Stream toJSON(Env &env, Closure closure, std::vector<Operand> &&operands) {
+  return ranges::yield(
+      lift(ranges::yield(0) | ranges::views::for_each([operands = std::move(operands)](auto) {
+             return ranges::views::concat(
+                 ranges::yield(Word("{"sv)), operands, ranges::yield(Word("}"sv)));
+           }) |
+           ranges::views::transform(ToJSON(env, std::move(closure))))
+          .transform([](auto &&s) { return s | ranges::views::join | ranges::to<std::string>; })
+          .and_then([](auto &&str) -> Result<Value> {
+            auto value = google::protobuf::Value();
+            if (google::protobuf::json::JsonStringToMessage(str, value.mutable_struct_value())
+                    .ok()) {
+              assert(!value.has_list_value());
+              return value;
+            }
+            return std::unexpected(Error::kJsonError);
+          }));
 }
 
 //
@@ -383,7 +390,7 @@ auto StreamParserImpl::parse(
         cmds.top().closure_fn = std::move(rhs).factory(env);
 
       } else {
-        cmds.top().operands.push_back(toJSON(env, std::move(rhs.operands)));
+        cmds.top().operands.push_back(toJSON(env, rhs.closure, std::move(rhs.operands)));
       }
 
     } else if (cmds.top().closure_fn) {
@@ -449,21 +456,20 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
     return StreamRef(token | ranges::views::drop(1));
   }
   if (ranges::starts_with(token, "`"sv)) {
-    return [&env = env, token = token](const Closure &closure) {
-      auto to_str = ToString::Operand(env, closure, true);
-      return lift(trim(token, 1, 1) | ranges::views::split(' ') |
-                  ranges::views::transform([&](auto &&token) -> Result<std::string> {
-                    if (ranges::starts_with(token, "$"sv)) {
-                      return to_str(StreamRef(token | ranges::views::drop(1)));
-                    }
-                    return token | ranges::to<std::string>;
-                  }))
-          .transform([](auto &&parts) {
-            auto val = google::protobuf::Value();
-            val.set_string_value(parts | ranges::views::join(' ') | ranges::to<std::string>());
-            return val;
-          });
-    };
+    auto to_str = ToString::Operand(env, closure, true);
+    return ranges::yield(lift(trim(token, 1, 1) | ranges::views::split(' ') |
+                              ranges::views::transform([&](auto &&token) -> Result<std::string> {
+                                if (ranges::starts_with(token, "$"sv)) {
+                                  return to_str(StreamRef(token | ranges::views::drop(1)));
+                                }
+                                return token | ranges::to<std::string>;
+                              }))
+                             .transform([](auto &&parts) {
+                               auto val = google::protobuf::Value();
+                               val.set_string_value(parts | ranges::views::join(' ') |
+                                                    ranges::to<std::string>());
+                               return val;
+                             }));
   }
   if (auto val = google::protobuf::Value(); ranges::starts_with(token, "'"sv)) {
     val.set_string_value(trim(token, 1, 1) | ranges::to<std::string>);
@@ -478,9 +484,10 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
 
   // todo: fix closure variable in record
   if (auto it = closure.vars.find(Word{ranges::front(path)}); it != closure.vars.end()) {
-    return [value = it->second, path = path | ranges::views::drop(1)](const auto &) {
-      return std::visit([](auto &&value) -> ExprValue { return value; }, lookupField(*value, path));
-    };
+    return ranges::yield(0) | ranges::views::transform([var = it->second](auto) { return *var; }) |
+           ranges::views::for_each([path = path | ranges::views::drop(1)](auto value) {
+             return lookupField(std::move(value), path);
+           });
   }
   return Word{token};
 }

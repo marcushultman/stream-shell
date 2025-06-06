@@ -2,26 +2,31 @@
 
 #include "stream-shell/operand.h"
 
-inline auto lookupField(Value value, ranges::forward_range auto path) -> Value {
+inline auto lookupField(Value input, ranges::forward_range auto path) -> Stream {
   if (ranges::empty(path)) {
-    return value;
+    return ranges::yield(input);
   }
-  google::protobuf::Value empty;
-  empty.mutable_list_value();
-
-  if (!std::holds_alternative<google::protobuf::Value>(value)) {
-    return empty;
-  }
-  return ranges::fold_left(
-      path, std::get<google::protobuf::Value>(std::move(value)), [&](auto &&json, auto field) {
-        if (json.has_struct_value()) {
-          auto fields = std::move(*json.mutable_struct_value()->mutable_fields());
-          if (auto it = fields.find(field | ranges::to<std::string>); it != fields.end()) {
-            return std::move(it->second);
+  auto value = ranges::fold_left(
+      path,
+      std::get_if<google::protobuf::Value>(&input),
+      [&](google::protobuf::Value *json, auto field) -> google::protobuf::Value * {
+        if (json && json->has_struct_value()) {
+          auto *fields = json->mutable_struct_value()->mutable_fields();
+          if (auto it = fields->find(field | ranges::to<std::string>); it != fields->end()) {
+            return &it->second;
           }
         }
-        return empty;
+        return nullptr;
       });
+  if (!value) {
+    // Don't treat this as error - just omit this value
+    return Stream();
+  } else if (value->has_list_value()) {
+    auto list = std::move(*value->mutable_list_value());
+    return ranges::views::iota(0, list.values().size()) |
+           ranges::views::transform([list = std::move(list)](auto i) { return list.values(i); });
+  }
+  return ranges::yield(std::move(*value));
 }
 
 inline Operand get(Value value, auto args) {
@@ -34,5 +39,5 @@ inline Operand get(Value value, auto args) {
     return ranges::yield(std::unexpected(Error::kMissingOperand));
   }
   auto path = word->value | ranges::views::split('.');
-  return ranges::yield(lookupField(std::move(value), path));
+  return lookupField(std::move(value), path);
 }
