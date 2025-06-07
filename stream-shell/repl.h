@@ -30,9 +30,14 @@ struct ProdEnv final : Env {
   StreamFactory getEnv(StreamRef ref) const override {
     if (auto it = _cache.find(ref); it != _cache.end()) {
       return it->second;
-    } else if (auto var = std::getenv((ref.name | ranges::to<std::string>).c_str())) {
-      auto [stream, _] = _parser->parse(tokenize(std::string_view(var)));
-      return _cache[ref] = [stream](auto) { return stream; };
+    } else if (auto str = std::getenv((ref.name | ranges::to<std::string>).c_str())) {
+      return _cache[ref] = [sv = std::string_view(str)](auto) {
+        return sv | ranges::views::split(':') | ranges::views::transform([](auto chunk) {
+                 google::protobuf::Value value;
+                 value.set_string_value(chunk | ranges::to<std::string>);
+                 return value;
+               });
+      };
     }
     return {};
   }
