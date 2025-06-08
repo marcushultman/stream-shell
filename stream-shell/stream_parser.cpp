@@ -1,6 +1,7 @@
 #include "stream_parser.h"
 
 #include <expected>
+#include <filesystem>
 #include <functional>
 #include <stack>
 #include <google/protobuf/any.pb.h>
@@ -95,8 +96,9 @@ struct CommandBuilder {
                  if (auto stream = runBuiltin(
                          *cmd, env, scope, std::move(input), operands | ranges::views::drop(1))) {
                    return *stream;
+                 } else if (isExecutableInPath(Token(cmd->value) | ranges::to<std::string>)) {
+                   return runChildProcess(env, scope, operands);
                  }
-                 return runChildProcess(env, scope, operands);
                }
 
                // Stream expression (ignoring input)
@@ -184,6 +186,27 @@ struct CommandBuilder {
 #else
     return ranges::yield(std::unexpected(Error::kExecError));
 #endif
+  }
+
+  static bool isExecutable(const std::filesystem::path &p) {
+    return std::filesystem::is_regular_file(p) && (access(p.c_str(), X_OK) == 0);
+  }
+
+  static bool isExecutableInPath(const std::filesystem::path &path) {
+    if (ranges::contains(path.string(), '/')) {
+      return isExecutable(path);
+    }
+
+    const char *path_env = std::getenv("PATH");
+    if (!path_env) {
+      return false;
+    }
+    return ranges::count_if(std::string_view(path_env) | ranges::views::split(':') |
+                                ranges::views::transform([&](auto dir) {
+                                  return std::filesystem::path{dir | ranges::to<std::string>} /
+                                         path;
+                                }),
+                            isExecutable);
   }
 };
 
