@@ -100,9 +100,7 @@ struct CommandBuilder {
                }
 
                // Stream expression (ignoring input)
-               return operands | ranges::views::for_each([&env, scope](const Operand &value) {
-                        return std::visit(ToStream(env, scope), value);
-                      });
+               return operands | ranges::views::for_each(ToStream(env, scope));
              });
     };
   }
