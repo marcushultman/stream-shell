@@ -42,7 +42,19 @@ struct ProdEnv final : Env {
     return {};
   }
   void setEnv(StreamRef ref, StreamFactory stream) override {
-    // todo: setenv?
+    if (ref.name == "PWD") {
+      std::optional<std::string> pwd;
+      ranges::for_each(stream({}), [&](auto result) {
+        if (auto value = result ? std::get_if<google::protobuf::Value>(&*result) : nullptr;
+            value && value->has_string_value()) {
+          pwd = std::move(*value->mutable_string_value());
+        }
+      });
+      if (pwd) {
+        chdir(pwd->c_str());
+      }
+    }
+
     _cache[ref] = std::move(stream);
   }
   bool sleepUntil(std::chrono::steady_clock::time_point t) override {
