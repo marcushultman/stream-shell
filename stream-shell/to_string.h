@@ -33,6 +33,8 @@ struct ToString final {
       }
       return (*this)(static_cast<const google::protobuf::Message &>(val));
     }
+
+    auto operator()(const ::Value &value) const -> Result { return std::visit(*this, value); }
   };
 
   struct Operand : Value {
