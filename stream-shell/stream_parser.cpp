@@ -4,12 +4,17 @@
 #include <filesystem>
 #include <functional>
 #include <stack>
+#include <fcntl.h>
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/util/json_util.h>
 #include <range/v3/algorithm/for_each.hpp>
 #include <range/v3/all.hpp>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #include <unistd.h>
+#include <utmp.h>
 #include "builtin.h"
 #include "lift.h"
 #include "operand.h"
@@ -133,43 +138,59 @@ struct CommandBuilder {
                                 const Scope &scope,
                                 const std::vector<Operand> &operands) {
 #if !__EMSCRIPTEN__
-    std::array<int, 2> out_pipe, err_pipe;
-
-    if (pipe(out_pipe.data()) == -1 || pipe(err_pipe.data()) == -1) {
-      return ranges::yield(std::unexpected(Error::kExecPipeError));
-    }
-
     auto args = lift(operands | ranges::views::transform(ToString::Operand(env, scope)));
 
     if (!args) {
       return ranges::yield(std::unexpected(args.error()));
     }
 
+    auto pty_fd = posix_openpt(O_RDWR | O_NOCTTY);
+    if (pty_fd < 0 || grantpt(pty_fd) < 0 || unlockpt(pty_fd) < 0) {
+      return ranges::yield(std::unexpected(Error::kExecPipeError));
+    }
+
+    const char *tty_name = ptsname(pty_fd);
+    if (!tty_name) {
+      close(pty_fd);
+      return ranges::yield(std::unexpected(Error::kExecPipeError));
+    }
+
     if (auto pid = fork(); pid == 0) {
-      close(out_pipe[0]);
-      close(err_pipe[0]);
-      dup2(out_pipe[1], STDOUT_FILENO);
-      dup2(err_pipe[1], STDERR_FILENO);
+      // Child processq
+      int tty_fd = open(tty_name, O_RDWR);
+      if (tty_fd < 0) _exit(1);
+
+      if (setsid() == -1 || ioctl(tty_fd, TIOCSCTTY, 0) == -1 ||
+          tcsetpgrp(tty_fd, getpid()) == -1) {
+        close(tty_fd);
+        _exit(1);
+      }
+
+      dup2(tty_fd, STDIN_FILENO);
+      dup2(tty_fd, STDOUT_FILENO);
+      dup2(tty_fd, STDERR_FILENO);
+
+      close(pty_fd);
+      close(tty_fd);
 
       exec(*args);
-      exit(1);
+      _exit(1);
 
     } else if (pid > 0) {
-      close(out_pipe[1]);
-      close(err_pipe[1]);
+      tcsetpgrp(pty_fd, pid);
 
+      // Parent process
       return ranges::views::generate(
-                 [&env, out_pipe, err_pipe, pid, bytes = google::protobuf::BytesValue()] mutable
+                 [&env, pty_fd, pid, bytes = google::protobuf::BytesValue()] mutable
                  -> std::optional<Result<Value>> {
-                   if (auto n = env.read(out_pipe[0], bytes); n == 0) {
-                     close(out_pipe[0]);
-                     close(err_pipe[0]);
+                   if (auto n = env.read(pty_fd, bytes); n == 0) {
+                     close(pty_fd);
 
-                     // blocking, but stdout is already EOF
                      int status = 0;
                      waitpid(pid, &status, 0);
+                     tcsetpgrp(STDIN_FILENO, getpgrp());
 
-                     if (status) {
+                     if (status != 0) {
                        return std::unexpected(Error::kExecNonZeroStatus);
                      }
                      return std::nullopt;
