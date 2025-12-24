@@ -76,40 +76,10 @@ struct REPLPrinter final : Printer {
   const Prompt &_prompt;
 };
 
-struct FileWriter final : Consumer {
-  FileWriter(std::ofstream file) : _file{std::move(file)} {}
+}  // namespace
 
-  auto operator()(size_t, const Value &value) -> bool override {
-    auto str = *std::visit(_to_str, value);
-    _file.write(str.data(), str.size());
-    return true;
-  }
-
-  std::ofstream _file;
-  ToString::Value _to_str;
-};
-
-struct ConsumerFactory {
-  using C = std::unique_ptr<Consumer>;
-  ConsumerFactory(const Prompt &prompt) : _prompt{prompt} {}
-  auto operator()(Print::Pull &pull) -> C {
-    return std::make_unique<REPLPrinter>(pull.full, _prompt);
-  }
-  auto operator()(Print::Slice &slice) -> C { return std::make_unique<SlicePrinter>(slice.window); }
-  auto operator()(Print::WriteFile &write_file) -> C {
-    auto filename = write_file.filename | ranges::to<std::string>;
-    auto file = std::ofstream(filename);
-    if (!file.is_open()) {
-      std::cerr << std::format("Failed to open file: {}", filename) << std::endl;
-      return nullptr;
-    }
-    return std::make_unique<FileWriter>(std::move(file));
-  }
-  const Prompt &_prompt;
-};
-
-void printStream(Stream &&stream, Print::Mode mode, const Prompt &prompt) {
-  auto consumer = std::visit(ConsumerFactory(prompt), mode);
+void printStream(Stream &&stream, const Prompt &prompt) {
+  auto consumer = std::make_unique<REPLPrinter>(false, prompt);
   if (!consumer) {
     return;
   }
@@ -121,10 +91,4 @@ void printStream(Stream &&stream, Print::Mode mode, const Prompt &prompt) {
       return;
     }
   }
-}
-
-}  // namespace
-
-void printStream(PrintableStream &&stream, const Prompt &prompt) {
-  printStream(std::move(stream.first), stream.second, prompt);
 }

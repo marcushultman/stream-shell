@@ -2,6 +2,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <stack>
 #include <fcntl.h>
@@ -49,8 +50,8 @@ inline auto exec(std::ranges::range auto args) {
   return execvp(args_vec[0].c_str(), argv.data());
 }
 
-auto errorStream(Error err) -> PrintableStream {
-  return {ranges::views::single(std::unexpected(err)), Print::Pull{.full = true}};
+auto errorStream(Error err) -> Stream {
+  return ranges::views::single(std::unexpected(err));
 }
 
 enum class InputMode {
@@ -76,7 +77,6 @@ struct CommandBuilder {
 
   // todo: mutex with closure?
   int record_level = 0;
-  Print::Mode print_mode;
 
   StreamFactory factory(Env &env) && {
     if (closure) {
@@ -120,10 +120,6 @@ struct CommandBuilder {
       }
     }
     return std::move(*this).build(env);
-  }
-  PrintableStream print(Env &env) && {
-    auto mode = std::move(print_mode);
-    return {std::move(*this).build(env), std::move(mode)};
   }
 
  private:
@@ -264,13 +260,8 @@ auto binaryOp(std::ranges::range auto op) {
 }
 
 auto ternaryOp(std::ranges::range auto op) {
-  if (op == "?") return 4;
+  if (op == ":") return 4;
   return 0;
-}
-
-auto rightAssociative(std::ranges::range auto op) {
-  if (op == "?") return true;
-  return false;
 }
 
 auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
@@ -278,7 +269,6 @@ auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
   if (auto p = unaryRightOp(true, op)) return p;
   if (auto p = binaryOp(op)) return p;
   if (auto p = ternaryOp(op)) return p;
-  if (op == ":") return 1;
   if (op == ";") return 2;
   if (op == "=" || op == "|") return 3;
   return 0;
@@ -286,6 +276,11 @@ auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
 
 auto isOperator(const CommandBuilder &lhs, std::ranges::range auto op) {
   return precedence(lhs, op) > 0;
+}
+
+std::optional<std::string_view> ternaryMatch(std::ranges::range auto op) {
+  if (op == ":") return "?"sv;
+  return {};
 }
 
 /**
@@ -362,13 +357,12 @@ struct StreamParserImpl final : StreamParser {
   StreamParserImpl(Env &env) : env{env} {}
 
   auto parse(ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>)
-      -> PrintableStream override;
+      -> Stream override;
 
  private:
   using OpPred = std::function<bool(Token)>;
 
   auto toOperand(ranges::bidirectional_range auto token) -> Operand;
-  auto operatorCanBeApplied(std::ranges::range auto op) -> bool;
 
   auto performOp(const OpPred &pred) -> Result<void>;
 
@@ -379,28 +373,32 @@ struct StreamParserImpl final : StreamParser {
 
 auto StreamParserImpl::parse(
     ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>> tokens)
-    -> PrintableStream {
+    -> Stream {
   // reset state
   cmds = {};
   ops = {};
   cmds.emplace();
 
   for (auto token : tokens) {
-    if (isOperator(cmds.top(), token) && operatorCanBeApplied(token)) {
-      if (auto res = performOp([&](const auto &op) mutable {
-            if (op == "?" && token == ":") {
-              return false;
+    if (isOperator(cmds.top(), token)) {
+      auto ternary_op = ternaryMatch(token);
+
+      if (auto res = performOp([&](auto op) mutable {
+            if (ternary_op) {
+              return op != *ternary_op;
             }
             auto a = precedence(cmds.top(), op);
             auto b = precedence(cmds.top(), token);
-            return rightAssociative(token) ? (a > b) : (a >= b);
+            return a >= b;
           });
           !res.has_value()) {
         return errorStream(res.error());
       }
-      if (ops.empty() || !(ops.top() == "?" && token == ":")) {
-        ops.push(token);
+
+      if (ternary_op) {
+        ops.pop();
       }
+      ops.push(token);
       auto &lhs = cmds.top();
       auto &rhs = cmds.emplace();
 
@@ -456,6 +454,15 @@ auto StreamParserImpl::parse(
         cmds.top().operands.push_back(toJSON(env, rhs.scope, std::move(rhs.operands)));
       }
 
+      // todo: generalize open ternary
+    } else if (token == "?") {
+      ops.push(token);
+      auto &lhs = cmds.top();
+      auto &rhs = cmds.emplace();
+
+      rhs.scope = lhs.scope;
+      rhs.record_level = lhs.record_level;
+
     } else if (token == "->") {
       auto &lhs = cmds.top();
       auto *var_name = lhs.operands.size() == 1 ? std::get_if<Word>(&lhs.operands[0]) : nullptr;
@@ -465,7 +472,7 @@ auto StreamParserImpl::parse(
       lhs.upstream = [var = lhs.scope.add(std::move(*var_name))](Stream input) -> Stream {
         auto results = input | ranges::views::take(1) | ranges::to<std::vector>;
         if (results.empty() || !results.front()) {
-          return results.empty() ? errorStream(Error::kInvalidClosureSignature).first
+          return results.empty() ? errorStream(Error::kInvalidClosureSignature)
                                  : ranges::yield(results.front());
         }
         *var = results.front().value();
@@ -484,7 +491,7 @@ auto StreamParserImpl::parse(
   if (cmds.size() != 1) {
     return errorStream(Error::kParseError);
   }
-  return std::move(cmds.top()).print(env);
+  return std::move(cmds.top()).build(env);
 }
 
 auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Operand {
@@ -530,13 +537,6 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
   return Word{token};
 }
 
-auto StreamParserImpl::operatorCanBeApplied(std::ranges::range auto op) -> bool {
-  if (cmds.top().record_level) {
-    return binaryOp(op);
-  }
-  return true;
-}
-
 auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
   while (!ops.empty() && pred(ops.top())) {
     if (cmds.size() < 2) {
@@ -547,15 +547,20 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
     auto lhs = std::move(cmds.top());
     cmds.pop();
 
-    if (auto *file = isFilePipe(ops.top(), rhs)) {
-      ops.pop();
-      cmds.push(std::move(lhs));
-      if (auto result = performOp([&](const auto &op) { return precedence(cmds.top(), op) >= 1; });
-          !result) {
-        return result;
+    if (auto *maybe_filename = isFilePipe(ops.top(), rhs)) {
+      auto filename = maybe_filename->value | ranges::to<std::string>;
+      auto file = std::ofstream(filename);
+
+      if (!file.is_open()) {
+        std::cerr << std::format("Failed to open file: {}", filename) << std::endl;
+        return std::unexpected(Error::kUnknown);
       }
-      ops.emplace();
-      cmds.top().print_mode = Print::WriteFile{file->value};
+      std::move(lhs).build(env) | for_each([&](Value &&value) {
+        auto str = *std::visit(ToString::Value(), value);
+        file.write(str.data(), str.size());
+        return Stream();
+      });
+      cmds.push(std::move(rhs));
 
     } else if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
       if (rhs.operands.empty()) {
@@ -583,29 +588,22 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
       cmds.push(std::move(lhs));
 
     } else if (ternaryOp(ops.top())) {
+      if (cmds.empty()) {
+        return std::unexpected(Error::kMissingTernary);
+      }
       auto llhs = std::move(cmds.top());
       cmds.pop();
-      if (llhs.operands.empty()) {
+
+      if (llhs.operands.empty() || lhs.operands.empty() || rhs.operands.empty()) {
         return std::unexpected(Error::kMissingOperand);
       }
-      llhs.operands.back() = std::visit(
-          OperandOp(ops.top()), std::move(llhs.operands.back()), std::move(lhs).operand(env));
-      rhs.operands[0] = std::visit(ValueTransform(TernaryEvaluation()),
+      rhs.operands[0] = std::visit(OperandOp(ops.top()),
                                    std::move(llhs.operands.back()),
+                                   std::move(lhs).operand(env),
                                    std::move(rhs.operands[0]));
       llhs.operands.pop_back();
       llhs.operands.append_range(rhs.operands);
       cmds.push(std::move(llhs));
-
-    } else if (ops.top() == ":") {
-      lhs.print_mode = [&] -> Print::Mode {
-        if (!rhs.operands.empty())
-          if (auto arg = std::get_if<google::protobuf::Value>(&rhs.operands[0]))
-            if (arg->has_number_value())
-              return Print::Slice{static_cast<size_t>(arg->number_value())};
-        return Print::Pull{.full = true};
-      }();
-      cmds.push(std::move(lhs));
 
     } else if (ops.top() == ";") {
       ranges::for_each(std::move(lhs).build(env), [](auto &&) {});

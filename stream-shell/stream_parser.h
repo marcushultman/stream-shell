@@ -21,10 +21,13 @@ inline auto operator<(Token lhs, Token rhs) {
 inline auto operator==(std::ranges::range auto lhs, std::ranges::range auto rhs) {
   return ranges::equal(lhs, rhs);
 }
+inline auto operator!=(std::ranges::range auto lhs, std::ranges::range auto rhs) {
+  return !(lhs == rhs);
+}
+
 inline auto operator==(std::ranges::range auto lhs, const char *rhs) {
   return ranges::equal(lhs, std::string_view(rhs));
 }
-
 inline auto operator!=(std::ranges::range auto lhs, const char *rhs) {
   return !(lhs == rhs);
 }
@@ -41,10 +44,9 @@ enum class Error : int {
   kParseError,
   kJsonError,
 
-  kCoalesceSkip,
-
   kMissingOperator,
   kMissingOperand,
+  kMissingTernary,
 
   kExecError,
   kExecPipeError,
@@ -80,29 +82,11 @@ struct Env {
   virtual ssize_t read(int fd, google::protobuf::BytesValue &bytes) = 0;
 };
 
-struct Print {
-  struct Pull {
-    bool full = false;
-    bool operator==(const Pull &) const = default;
-  };
-  struct Slice {
-    size_t window = 0;
-    bool operator==(const Slice &) const = default;
-  };
-  struct WriteFile {
-    ranges::any_view<const char, ranges::category::forward> filename;
-    bool operator==(const WriteFile &) const = default;
-  };
-  using Mode = std::variant<Pull, Slice, WriteFile>;
-};
-
-using PrintableStream = std::pair<Stream, Print::Mode>;
-
 struct StreamParser {
   virtual ~StreamParser() = default;
   virtual auto parse(
       ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>)
-      -> PrintableStream = 0;
+      -> Stream = 0;
 };
 
 /**

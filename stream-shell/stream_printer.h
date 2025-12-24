@@ -4,4 +4,4 @@
 
 using Prompt = std::function<const char *(const char *prompt)>;
 
-void printStream(PrintableStream &&, const Prompt &);
+void printStream(Stream &&, const Prompt &);

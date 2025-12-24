@@ -2,9 +2,7 @@
 
 Stream-shell (short name `stsh`), is a non-POSIX compliant shell, taking inspiration from shells that operates on structured data, such as Nushell, but stripping out unnecessary type abstractions and other stuff that just offers too many ways to do the same thing.
 
-Everything in stream-shell are streams, including the environment and other variables. Streams are lazily consumed with back-pressure, supporting both finite and infinite sequences. They are transformed by commands, such as executable binaries, builtins, and closures (lambdas), and chained together using the `|`-operator. Streams makes working with large amounts of data a breeze, as they do not require all data to be loaded upfront before it can start interacting with it.
-
-Streams are consumed by for example printing the values to stdout, or dumping them to a file, similar to more traditional shells. They can also be interpolated into other stream definitions. To re-use more complex stream definitions, you can assign the stream with its transforms to a variable, either on the command line or in a script - note that the upstream(s) and commands involved in the stream are not executed until the variable is part of another stream that is being consumed.
+Everything in stream-shell are streams of values, including the environment and other variables. Streams are lazily consumed with back-pressure, supporting both finite and infinite sequences. They are transformed by commands, such as executable binaries, builtins, and closures (lambdas), and chained together using the `|`-operator. Streams makes working with large amounts of data a breeze, as they do not require all data to be loaded upfront before they can start interacting with it.
 
 ## Streams
 
@@ -37,22 +35,13 @@ Streams can contain more complex values too, in the form of records. Records can
 
 ```
 > user.proto.Person { name: "Albert" } { name: "Bernard" }
-user.proto.Person { name: "Albert" }
+{ name: "Albert" }
 { name: "Bernard" }
-```
-
-Fun fact: the values used in the above streams may look like primitives, but are in reality represented by proto3 value wrappers. This is opaque to both transformation and consumption of the values, but it forces a uniform way to model types of streams.
-
-```
-> 0.. | describe
-google.protobuf.Int32Value
-> 0xFF | describe
-google.protobuf.BytesValue
 ```
 
 ### Expressions
 
-A stream expression is evaluated to a stream, and a value expression is evaluated to a value in a in a stream. Many of the value types can be used with arithmetic operations. An operation has higher precedence than stream value delimiters (e.g. whitespace, newline), even when there is additional whitespace between the expressions and operators.
+A stream expression is evaluated to a stream, and a value expression is evaluated to a value in a stream. Many of the value types can be used with arithmetic operations. An operation has higher precedence than stream value delimiters (e.g. whitespace, newline), even when there is additional whitespace between the expressions and operators.
 
 ```
 > 1 + 2 3 "foo" + "bar" 10 % 3
@@ -82,9 +71,7 @@ Parentheses can be used to isolate value expressions, and force anonymous record
 { name: "Bernard" }
 ```
 
-### Sub-streams
-
-A stream value cannot contain other streams. Attempting to put a stream in another stream will result in a flattened stream. This is a useful property in order to concatenate or combine streams.
+Attempting to put a stream in another stream will result in a flattened stream. This is a useful property in order to concatenate or combine streams.
 
 ```
 > 1 2..4 5
@@ -95,14 +82,23 @@ A stream value cannot contain other streams. Attempting to put a stream in anoth
 5
 ```
 
-There is another use-case for sub-streams - they can be provided as command parameters
+#### Write to file
+
+The > operator has been specialized for file paths, emulating the same behavior as some traditional shells, where the output is redirected to a file, but beware of operator precedence - `>` is evaluated before `|`.
 
 ```
-// todo: figure out a better example
-> git add (ls src)
+> "hello" > lines.log
+> "append hello" >> lines.log
 ```
 
-Streams themselves cannot be used with any arithmetic operator, but can be transformed.
+Note that the POSIX syntax for redirecting stdin from a file is not available in stream-shell. Instead you generate a stream from a file
+using the `open` command.
+
+```
+> open lines.log
+hello
+```
+
 
 ## Transforming a Stream
 
@@ -190,14 +186,11 @@ Most shell scripting langauges offer ways to define native functions or custom c
 
 ## Consuming a Stream
 
-As you have seen in the previous examples, all streams have been printed out to stdout. This is just one of many ways to consume a stream.
-
-### Interactive
-
 By default, streams are consumed using an interactive pull-mechanism on the command line, as opposed to the more traditional way of printing everything to stdout as fast as possible. The following example shows an infinite stream of numbers, being pulled on the REPL. Reading can be aborted using Ctrl+C. Finite streams returns after the last value has been printed.
 
 ```
 > 1..
+[Enter]
 1
 [Enter]
 2
@@ -207,49 +200,24 @@ By default, streams are consumed using an interactive pull-mechanism on the comm
 >
 ```
 
+### REPL-menu
+
+For more advanced ways of consuming a stream, you can hit [Tab] instead of pulling the next value. Here you can find options like:
+- Pring all remaining values
+- Sliced printout (replace already printed values in-place in the terminal)
+- Re-evaluate stream and dump to file
+- Put stream evaluation in background
+
 ### Automatic
 
-For finite streams, the traditional behavior of printing to stdout line-by-line can be useful and may be enabled using a trailing `:`.
+For finite streams, the traditional behavior of printing to stdout line-by-line can be useful and may be used by executing an expression using [Shift + Enter].
 
 ```
-> "foo" "bar" | { s -> s == "bar" } :
+> "foo" "bar" | { s -> s == "bar" }
+[Shift + Enter]
 false
 true
-```
-
-#### Slicing printout
-
-You can specify a window size in order to have succeeding values replace already printed values in-place in the terminal. This is especially useful when the upstream is emitting values with a delay. The following example shows a single line with the current time updated in realtime.
-
-```
-> now : 1
-2025-03-13T22:01:59+0000
-```
-
-### Write to file
-
-Just like some traditional shells, you can direct the output to a file instead of stdout, keeping the same syntax as bash.
-
-```
-> "hello" > lines.log
-> "append hello" >> lines.log
-```
-
-Note that the POSIX syntax for redirecting stdin from a file is not available in stream-shell. Instead you generate a stream from a file
-using the `open` command.
-
-```
-> open lines.log :
-hello
-```
-
-### Background
-
-Whether a stream is printed to stdout or written to a file, it's all done synchronously returning
-only after the stream has finished. In the case where long-running streams are being consumed, you can let it run in the background just as you'd do it in bash.
-
-```
-> now &
+>
 ```
 
 ## Variables & Environment
@@ -357,7 +325,7 @@ The configuration script for interactive stream-shell (`config.st`) is loaded fr
 
 ## Shell Prompt
 
-The `$PROMPT` environment variable can be set to customize the prompt of the shell. Similar to slicing consumption (`:1`), it uses the last emitted value to print the prompt.
+The `$PROMPT` environment variable can be set to customize the prompt of the shell. It uses the last emitted value to print the prompt.
 
 ### Oh My Posh
 

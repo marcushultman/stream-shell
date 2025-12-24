@@ -93,8 +93,5 @@ struct ValueOp {
     return ranges::yield(result);
   }
 
-  Stream operator()(const Error &err, const auto &...) {
-    return ranges::yield(std::unexpected(err));
-  }
   Stream operator()(const auto &...) { return ranges::yield(std::unexpected(Error::kInvalidOp)); }
 };

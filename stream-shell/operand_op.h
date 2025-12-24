@@ -33,22 +33,14 @@ inline bool isTruthy(Stream stream) {
   return ranges::all_of(stream, [](auto &&value) { return value && isTruthy(*value); });
 }
 
-struct TernaryCondition {
-  auto operator()(const IsValue auto &lhs, const auto &rhs) -> Stream {
-    return isTruthy(lhs) ? Stream(ranges::yield(rhs))
-                         : ranges::yield(std::unexpected(Error::kCoalesceSkip));
-  }
-  auto operator()(Error err, const auto &) -> Stream { return ranges::yield(std::unexpected(err)); }
-};
+template <typename T>
+concept IsCondition = InVariant<variant_ext_t<Value, Stream>, T>;
 
-struct TernaryEvaluation {
-  auto operator()(const IsValue auto &lhs, const IsValue auto &) -> Stream {
-    return ranges::yield(lhs);
+struct TernaryConditional {
+  auto operator()(const IsCondition auto &a, const auto &b, const auto &c) -> Operand {
+    return isTruthy(a) ? Operand(b) : c;
   }
-  auto operator()(Error err, const IsValue auto &rhs) -> Stream {
-    return err == Error::kCoalesceSkip ? Stream(ranges::yield(rhs))
-                                       : ranges::yield(std::unexpected(err));
-  }
+  Stream operator()(const auto &...) { return ranges::yield(std::unexpected(Error::kInvalidOp)); }
 };
 
 struct Iota {
@@ -90,9 +82,7 @@ struct ValueTransform {
   }
 
   auto eval(const Result<Value> &lhs, const Result<Value> &rhs) -> Stream {
-    return rhs ? lhs ? std::visit(_value_t, *lhs, *rhs)
-                     : std::visit([&](auto &rhs) { return _value_t(lhs.error(), rhs); }, *rhs)
-               : ranges::yield(rhs);
+    return rhs ? lhs ? std::visit(_value_t, *lhs, *rhs) : ranges::yield(lhs) : ranges::yield(rhs);
   }
   auto eval(const Stream &lhs, const IsValue auto &rhs) -> Stream {
     return eval(lhs, Stream(ranges::yield(rhs)));
@@ -115,7 +105,7 @@ struct ValueTransform {
 struct OperandOp {
   OperandOp(Token op) : op{op} {}
 
-  auto operator()(const auto &v) const -> Operand {
+  auto operator()(const auto &v) const -> Stream {
     return ValueTransform([&](const auto &v) -> Stream {
       if (op == "+") return ValueOp<std::identity>()(v);
       if (op == "-") return ValueOp<std::negate<>>()(v);
@@ -126,6 +116,7 @@ struct OperandOp {
     })(v);
   }
   auto operator()(const auto &...v) const -> Operand {
+    if (op == ":") return TernaryConditional()(v...);
     return ValueTransform([op = op](const auto &...v) -> Stream {
       if (op == "||") return ValueOp<std::logical_or<>, bool>()(v...);
       if (op == "&&") return ValueOp<std::logical_and<>, bool>()(v...);
@@ -140,7 +131,6 @@ struct OperandOp {
       if (op == "*") return ValueOp<std::multiplies<>>()(v...);
       if (op == "/") return ValueOp<std::divides<>>()(v...);
       if (op == "%") return ValueOp<std::modulus<>>()(v...);
-      if (op == "?") return TernaryCondition()(v...);
       if (op == "..") return ValueOp<Iota>()(v...);
       return ranges::yield(std::unexpected(Error::kInvalidOp));
     })(v...);
