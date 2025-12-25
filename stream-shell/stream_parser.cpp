@@ -396,6 +396,9 @@ auto StreamParserImpl::parse(
       }
 
       if (ternary_op) {
+        if (ops.empty()) {
+          return errorStream(Error::kMissingTernary);
+        }
         ops.pop();
       }
       ops.push(token);
