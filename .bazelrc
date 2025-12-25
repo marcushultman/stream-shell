@@ -1,3 +1,3 @@
 common --enable_bzlmod
 build --cxxopt='-std=c++23'
-build -c dbg
+build --compilation_mode=dbg --apple_generate_dsym --spawn_strategy=local
