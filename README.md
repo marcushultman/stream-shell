@@ -50,12 +50,11 @@ A stream expression is evaluated to a stream, and a value expression is evaluate
 "foobar"
 1
 ```
-
-Parentheses can be used to isolate value expressions, and force anonymous records.
 ```
 > 1 -2 + 3
 2
 ```
+Parentheses can be used to isolate value expressions, and force anonymous records.
 ```
 > 1 (-2 + 3)
 1
