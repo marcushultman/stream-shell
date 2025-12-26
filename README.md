@@ -82,24 +82,6 @@ Attempting to put a stream in another stream will result in a flattened stream. 
 5
 ```
 
-#### Write to file
-
-The > operator has been specialized for file paths, emulating the same behavior as some traditional shells, where the output is redirected to a file, but beware of operator precedence - `>` is evaluated before `|`.
-
-```
-> "hello" > lines.log
-> "append hello" >> lines.log
-```
-
-Note that the POSIX syntax for redirecting stdin from a file is not available in stream-shell. Instead you generate a stream from a file
-using the `open` command.
-
-```
-> open lines.log
-hello
-```
-
-
 ## Transforming a Stream
 
 Streams are transformed in pipelines chained together with the `|`-operator. Each transformation gets an input stream and provides an output stream. The input to a stream pipeline is always an empty stream, and the output of the last transformation is also the output of the stream pipeline itself. A semi-colon can be used to mark the end of a stream pipeline, allowing multiple stream pipelines on a single line, just like other shells.

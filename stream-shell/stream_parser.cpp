@@ -2,7 +2,6 @@
 
 #include <expected>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <stack>
 #include <fcntl.h>
@@ -226,14 +225,6 @@ struct CommandBuilder {
                             isExecutable);
   }
 };
-
-//
-
-Word *isFilePipe(auto op, CommandBuilder &rhs) {
-  return op == ">" && rhs.record_level == 0 && rhs.scope.vars.empty() && rhs.operands.size() == 1
-             ? std::get_if<Word>(&rhs.operands[0])
-             : nullptr;
-}
 
 //
 
@@ -550,22 +541,7 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
     auto lhs = std::move(cmds.top());
     cmds.pop();
 
-    if (auto *maybe_filename = isFilePipe(ops.top(), rhs)) {
-      auto filename = maybe_filename->value | ranges::to<std::string>;
-      auto file = std::ofstream(filename);
-
-      if (!file.is_open()) {
-        std::cerr << std::format("Failed to open file: {}", filename) << std::endl;
-        return std::unexpected(Error::kUnknown);
-      }
-      std::move(lhs).build(env) | for_each([&](Value &&value) {
-        auto str = *std::visit(ToString::Value(), value);
-        file.write(str.data(), str.size());
-        return Stream();
-      });
-      cmds.push(std::move(rhs));
-
-    } else if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
+    if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
       if (rhs.operands.empty()) {
         return std::unexpected(Error::kMissingOperand);
       }
