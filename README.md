@@ -87,11 +87,42 @@ Streams are transformed in pipelines chained together with the `|`-operator. Eac
 
 ### Executable binaries
 
-Streams can be generated or transformed by executing arbitrary binaries on your system. Even when running a command by itself, the input will implicitly be an empty stream. The output stream type can be inferred by the shell, plugins, or user configuration in order to automatically take care of parsing. Executable binaries can be used anywhere in a streaming pipeline, including in the expression-part of a closure.
+Streams can be generated or transformed by executing arbitrary binaries, or scripts, on your system. The input stream will be serialized using the [I/O Format](#I/O Format) and written to the child process stdin, and the output will be parsed as a stream. Even when running a command by itself, the input will implicitly be an empty stream - serialized to an empty byte sequence.
+
+#### Arguments
+
+Like many other shells, the first part of the command locates the executable, either via a relative path to the current working directory, absolute path, or found in any of the locations listed in the $PATH environment stream.
+
+The subsequent arguments are all conceptually part of the same command configuration, in the form of a single record value. All args are evaulated as a stream where each value is merged into the previous one using the protobuf schema merging strategy. Command options (both short and long) becomes shortform for a record with a single key/value. Primitive values becomes positional arguments concatenated into the `"@"` key.
+
+Example:
+```
+program --verbose -ab -c Foo --no-d --long=1234 "foo" 30 + 12
+```
+is read as
+```
+program { verbose: true } { a: true } { b: true } { c: "Foo" } { d: false } { long: 1234 } { "@": ["foo"] } { "@": [42] }
+```
+which becomes
+```
+{
+  "verbose": true,
+  "a": true,
+  "b": true,
+  "c": "Foo",
+  "d": false,
+  "long": 1234,
+  "@": ["foo", 42],
+}
+```
+and passed to `program` as
+```
+program --verbose -a=true -b=true -c=Foo -d=false --long=1234 "foo" 42
+```
 
 ### Builtins
 
-Stream-shell contains a few builtin commands that can be used in streaming pipelines or in closures. The streams accepted as input by-, or generated as output from a builtin already have strong types, and parsing/serialization is not enforced.
+Stream-shell contains a few builtin commands that can be used in streaming pipelines or in closures. The streams accepted as input by-, or generated as output from a builtin already have strong types, and serialization/parsing is not enacted. They will however use the same argument parsing as the executable binaries, but the configuration record is directly available to the builtin function.
 
 ### Closures
 
@@ -144,26 +175,32 @@ Albert
 Derek
 ```
 
-### Formatting
+## I/O Format
 
-The builtin command `to` transforms an input stream to a specific format.
+Values are serialized to the stdin of a child process (spawned by executing a binary or script) according to certain rules.
+
+- Byte values are passed directly in raw form.
+- Strings are also passed directly as UTF-8 encoded strings.
+- Other primitive values and untyped records are serialized in their JSON form.
+- Strongly typed records are encoded in protobuf wire format, prefixed with a varint of the resulting byte length.
+
+Bytes (both raw and protobuf encoded records) are concatenated without delimeter, everything else is delimeted using newline (`\n`)
+
+### Type conversion
+
+The builtin command `to` coerces an input stream into a specific format.
 ```
-> repeat "na" | tail 3 | to json
+> repeat "na" | head 3 | to json
 ["na", "na", "na"]
 ```
 
 `to` operates on the whole input stream - to use per-value, wrap it in a closure.
 ```
-> repeat "na" | tail 3 | { to json }
+> repeat "na" | head 3 | { to json }
 "na"
 "na"
 "na"
 ```
-
-
-### Writing your own commands
-
-Most shell scripting langauges offer ways to define native functions or custom commands. Stream-shell is not adding yet another way to do something that can be easily done by writing a script or program in your favorite language, whether that's Python, Rust, TypeScript etc. See [Configuration](#Configuration) for ways to ensure you can parse the input stream correctly.
 
 ## Consuming a Stream
 
@@ -184,7 +221,7 @@ By default, streams are consumed using an interactive pull-mechanism on the comm
 ### REPL-menu
 
 For more advanced ways of consuming a stream, you can hit [Tab] instead of pulling the next value. Here you can find options like:
-- Pring all remaining values
+- Print all remaining values
 - Sliced printout (replace already printed values in-place in the terminal)
 - Re-evaluate stream and dump to file
 - Put stream evaluation in background
@@ -194,10 +231,13 @@ For more advanced ways of consuming a stream, you can hit [Tab] instead of pulli
 For finite streams, the traditional behavior of printing to stdout line-by-line can be useful and may be used by executing an expression using [Shift + Enter].
 
 ```
-> "foo" "bar" | { s -> s == "bar" }
+> 1..5
 [Shift + Enter]
-false
-true
+1
+2
+3
+4
+5
 >
 ```
 
