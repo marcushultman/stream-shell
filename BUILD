@@ -5,6 +5,7 @@ refresh_compile_commands(
   targets = {
     "//stream-shell": "",
     "//stream-shell/test": "",
+    "//stream-shell/test:linenoise-example": "",
     # ":js": "",
   },
 )
