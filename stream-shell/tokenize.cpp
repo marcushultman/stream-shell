@@ -7,14 +7,10 @@ namespace {
 
 using namespace std::string_view_literals;
 
-bool isvarchar(char c) {
-  return std::isalnum(c) || ranges::contains("_"sv, c);
-}
-
 struct Tokenizer {
   struct Init {};
   struct Word {
-    bool varchar = 0;
+    bool is_path = false;
   };
   struct Operator {
     char first = 0;
@@ -40,7 +36,7 @@ struct Tokenizer {
     } else if (std::isspace(c) || ranges::contains("(){}[]\"'`;:,"sv, c)) {
       _type = Init();
     } else {
-      _type = Word{.varchar = isvarchar(c)};
+      _type = Word{.is_path = ranges::contains("./"sv, c)};
     }
     return false;
   }
@@ -49,10 +45,9 @@ struct Tokenizer {
     if (std::isspace(c) || ranges::contains("(){}[]\"'`"sv, c)) {
       return (*this)(Init(), c);
     }
-    if (c == '=' && w.varchar) {
+    if (c == '=' && !w.is_path) {
       return (*this)(Init(), c);
     }
-    _type = Word{.varchar = w.varchar && isvarchar(c)};
     return true;
   }
 

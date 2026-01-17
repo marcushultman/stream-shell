@@ -33,6 +33,7 @@ BOOST_AUTO_TEST_CASE(tokenize_command) {
   BOOST_TEST(tokens("echo") == Tokens({"echo"}), kEach);
   BOOST_TEST(tokens("git status") == Tokens({"git", "status"}), kEach);
   BOOST_TEST(tokens("foo -b --baz") == Tokens({"foo", "-b", "--baz"}), kEach);
+  BOOST_TEST(tokens("foo --bar=123") == Tokens({"foo", "--bar", "=", "123"}), kEach);
   BOOST_TEST(tokens("my_script.stsh") == Tokens({"my_script.stsh"}), kEach);
   BOOST_TEST(tokens("my-script.stsh") == Tokens({"my-script.stsh"}), kEach);
   BOOST_TEST(tokens("cd ~/some/dir") == Tokens({"cd", "~/some/dir"}), kEach);
