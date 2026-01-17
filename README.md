@@ -70,6 +70,20 @@ Parentheses can be used to isolate value expressions, and force anonymous record
 { name: "Bernard" }
 ```
 
+Options & flags are shorthand syntax for records.
+```
+> --foo --no-bar -ABC
+{ foo: true }
+{ bar: false }
+{ A: true, B: true, C: true }
+```
+
+Single-value records like these can also be assigned to.
+```
+> --foo=42 --bar="foo"
+{ foo: 42, bar: "foo" }
+```
+
 Attempting to put a stream in another stream will result in a flattened stream. This is a useful property in order to concatenate or combine streams.
 
 ```
@@ -83,50 +97,41 @@ Attempting to put a stream in another stream will result in a flattened stream. 
 
 ## Transforming a Stream
 
-Streams are transformed in pipelines chained together with the `|`-operator. Each transformation gets an input stream and provides an output stream. The input to a stream pipeline is always an empty stream, and the output of the last transformation is also the output of the stream pipeline itself. A semi-colon can be used to mark the end of a stream pipeline, allowing multiple stream pipelines on a single line, just like other shells.
+Streams are transformed in stages chained together into a pipeline with the `|`-operator. Each stage consists of an expression that gets an input stream and provides an output stream. The input to the first stage of a pipeline is always an empty stream, and the output of the last stage is also the output of the pipeline itself. A stream expression simply discards the input stream and enumerates the values as the output stream. A semi-colon can be used to mark the end of a pipeline, allowing multiple pipelines on a single line, just like other shells.
 
-### Executable binaries
+### Command configuration
 
-Streams can be generated or transformed by executing arbitrary binaries, or scripts, on your system. The input stream will be serialized using the [I/O Format](#I/O Format) and written to the child process stdin, and the output will be parsed as a stream. Even when running a command by itself, the input will implicitly be an empty stream - serialized to an empty byte sequence.
-
-#### Arguments
-
-Like many other shells, the first part of the command locates the executable, either via a relative path to the current working directory, absolute path, or found in any of the locations listed in the $PATH environment stream.
-
-The subsequent arguments are all conceptually part of the same command configuration, in the form of a single record value. All args are evaulated as a stream where each value is merged into the previous one using the protobuf schema merging strategy. Command options (both short and long) becomes shortform for a record with a single key/value. Primitive values becomes positional arguments concatenated into the `"@"` key.
+Like many other shells, if the first value in an expression identifies an executable binary or builtin function, the expression is a command. The remaining command argument values are all conceptually part of the same command configuration, and will be consumed and merged into a single record value upon execution. The configuration record could become serialized into a list of string tokens when used with executable binaries. Record values uses protobuf merging strategy (known types are required to match), whereas primitives are placed in the positional list field keyed by `@`. Whenever a positional is encountered, a nested record is added using the value as key into which subsequent record-values are merged. This way, trivial arguments are bi-directionally convertible.
 
 Example:
 ```
-program --verbose -ab -c Foo --no-d --long=1234 "foo" 30 + 12
+command --verbose -ab subcommand --no-c --long=1234 "foo" "bar"
 ```
-is read as
-```
-program { verbose: true } { a: true } { b: true } { c: "Foo" } { d: false } { long: 1234 } { "@": ["foo"] } { "@": [42] }
-```
-which becomes
+is parsed as
 ```
 {
+  "@": ["subcommand", "foo", "bar"],
   "verbose": true,
   "a": true,
   "b": true,
-  "c": "Foo",
-  "d": false,
-  "long": 1234,
-  "@": ["foo", 42],
+  "subcommand": {
+    "c": "false",
+    "long": 1234,
+  }
 }
 ```
-and passed to `program` as
-```
-program --verbose -a=true -b=true -c=Foo -d=false --long=1234 "foo" 42
-```
+
+### Executable binaries
+
+Streams can be generated or transformed by executing arbitrary binaries, or scripts, on your system. If the first value is a string primitive that references an executable binary either via a relative path from the current working directory, an absolute path, or found in any of the locations listed in the `$PATH` environment stream, then an instance of that program will launch when the command is executed. The input stream will be serialized and written to stdin and stdout will be parsed as a stream using the [I/O Format](#I/O Format).
 
 ### Builtins
 
-Stream-shell contains a few builtin commands that can be used in streaming pipelines or in closures. The streams accepted as input by-, or generated as output from a builtin already have strong types, and serialization/parsing is not enacted. They will however use the same argument parsing as the executable binaries, but the configuration record is directly available to the builtin function.
+Stream-shell contains a few builtin commands. The streams accepted as input by-, or generated as output from a builtin already have strong types, so serialization/parsing using the I/O Format is not enacted, and the configuration record is directly accisible by the builtin function logic.
 
 ### Closures
 
-A closure is declared between brackets `{ [signature ->] [expression(s)] }`, and consist of an optional signature, and expression(s) that shapes the output of the transformed stream. The closure is invoked for each value in the input stream.
+A closure is declared between brackets `{ [signature ->] [expression] }`, and consist of an optional signature, and an expression that shapes the output of the transformed stream. The closure is invoked for each value in the input stream.
 
 ```
 > 1..2 | { add 1 }
@@ -134,7 +139,7 @@ A closure is declared between brackets `{ [signature ->] [expression(s)] }`, and
 3
 ```
 
-A signature assigns the input value to named variable instead of using it as input stream. This is useful when you need to pass the value as command argument.
+A signature assigns the input value to named variable instead of using it as input stream. This is useful when you need to pass the value in a command configuration.
 
 ```
 > 1..2 | { i -> i i * 2 }
@@ -180,13 +185,11 @@ Derek
 Values are serialized to the stdin of a child process (spawned by executing a binary or script) according to certain rules.
 
 - Byte values are passed directly in raw form.
-- Strings are also passed directly as UTF-8 encoded strings.
-- Other primitive values and untyped records are serialized in their JSON form.
-- Strongly typed records are encoded in protobuf wire format, prefixed with a varint of the resulting byte length.
+- Strings are passed directly as UTF-8 encoded strings, with appended newline (`\n`).
+- Strongly typed records are encoded in delimeted protobuf wire format. A delimited message is a varint encoded message size followed by a message of exactly that size.
+- Other primitive values and untyped records are serialized in their JSON form, with appended newline (`\n`).
 
-Bytes (both raw and protobuf encoded records) are concatenated without delimeter, everything else is delimeted using newline (`\n`)
-
-### Type conversion
+## Type conversion
 
 The builtin command `to` coerces an input stream into a specific format.
 ```
