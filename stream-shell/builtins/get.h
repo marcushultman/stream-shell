@@ -29,15 +29,16 @@ inline auto lookupField(Value input, ranges::forward_range auto path) -> Stream 
   return ranges::yield(std::move(*value));
 }
 
-inline Stream get(Value value, auto args) {
-  if (ranges::size(args) != 1) {
+inline Stream get(Value value, const google::protobuf::Struct &config) {
+  if (auto it = config.fields().find("@");
+      it == config.fields().end() || it->second.list_value().values().size() != 1) {
     return ranges::yield(std::unexpected(Error::kMissingOperand));
-  }
-  Operand op = ranges::front(args);
-  auto *word = std::get_if<Word>(&op);
-  if (!word) {
+
+  } else if (auto &json = it->second.list_value().values(0); !json.has_string_value()) {
     return ranges::yield(std::unexpected(Error::kMissingOperand));
+
+  } else {
+    auto path = json.string_value() | ranges::views::split('.');
+    return lookupField(std::move(value), path);
   }
-  auto path = word->value | ranges::views::split('.');
-  return lookupField(std::move(value), path);
 }

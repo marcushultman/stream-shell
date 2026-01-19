@@ -59,6 +59,8 @@ enum class Error : int {
   kInvalidStringOp,
   kInvalidOp,
 
+  kConfigError,
+
   kInvalidClosureSignature,
   kInvalidStreamRef,
 };

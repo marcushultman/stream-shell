@@ -9,8 +9,10 @@
 using namespace std::string_literals;
 
 /**
- * Used to serialized external command args, interpolating string literals, and to print/write
- * command output.
+ * Used for:
+ * 1. JSON parsing (serialize Operands + join + parse) (no scope vars)
+ * 2. String interpolation of StreamRef (including scope vars)
+ * 3. Print Value in REPL.
  */
 struct ToString final {
   ToString() = delete;

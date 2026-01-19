@@ -6,7 +6,9 @@ cc_test(
     "@protobuf//:differencer",
   ],
   srcs = [
+    "config_test.cpp",
     "stream_parser_test.cpp",
+    "test_env.h",
     "tokenize_test.cpp",
   ],
 )

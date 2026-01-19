@@ -9,6 +9,7 @@
 #include <range/v3/all.hpp>
 #include "stream-shell/operand_op.h"
 #include "stream-shell/tokenize.h"
+#include "test_env.h"
 
 using namespace std::string_view_literals;
 
@@ -75,13 +76,6 @@ template <typename... Args>
 std::vector<Value> makeValues(Args &&...args) {
   return {makeValue(std::forward<Args>(args))...};
 }
-
-struct TestEnv : Env {
-  StreamFactory getEnv(StreamRef) const override { return {}; }
-  void setEnv(StreamRef, StreamFactory) override {}
-  bool sleepUntil(std::chrono::steady_clock::time_point) override { return true; }
-  ssize_t read(int fd, google::protobuf::BytesValue &bytes) override { return -1; }
-};
 
 TestEnv env;
 

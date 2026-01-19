@@ -2,10 +2,12 @@ cc_library(
   name = "stream-shell-lib",
   hdrs = [
     "builtins/add.h",
+    "builtins/args.h",
+    "builtins/echo.h",
     "builtins/get.h",
     "builtins/now.h",
-    "builtins/prepend.h",
     "builtin.h",
+    "config.h",
     "lift.h",
     "scope.h",
     "stream_parser.h",
@@ -21,6 +23,7 @@ cc_library(
     "variant_ext.h",
   ],
   srcs = [
+    "config.cpp",
     "stream_parser.cpp",
     "stream_printer.cpp",
     "tokenize.cpp",
