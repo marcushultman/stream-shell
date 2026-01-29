@@ -127,7 +127,9 @@ BOOST_AUTO_TEST_CASE(pipe) {
 }
 
 BOOST_AUTO_TEST_CASE(json) {
+  BOOST_TEST(parse("{ foo: 'bar' }") == makeValues(JSON("{ foo: \"bar\" }")), each);
   BOOST_TEST(parse("{ name: `Bernard` }") == makeValues(JSON("{ name: \"Bernard\" }")), each);
+  BOOST_TEST(parse("{ foo: { bar: 'baz' }}") == makeValues(JSON("{ foo: { bar: \"baz\" }}")), each);
 }
 
 BOOST_AUTO_TEST_CASE(closure) {

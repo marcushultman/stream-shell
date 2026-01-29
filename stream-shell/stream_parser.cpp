@@ -76,7 +76,7 @@ struct CommandBuilder {
   StreamFactory closure;
 
   // todo: mutex with closure?
-  int record_level = 0;
+  std::string record_literal;
 
   StreamFactory factory(Env &env) && {
     if (closure) {
@@ -326,23 +326,21 @@ struct ToJSON {
   ToString::Operand _to_str;
 };
 
-Stream toJSON(Env &env, Scope scope, std::vector<Operand> &&operands) {
-  return ranges::yield(
-      lift(ranges::yield(0) | ranges::views::for_each([operands = std::move(operands)](auto) {
-             return ranges::views::concat(
-                 ranges::yield(Word("{"sv)), operands, ranges::yield(Word("}"sv)));
-           }) |
-           ranges::views::transform(ToJSON(env, std::move(scope))))
-          .transform([](auto &&s) { return s | ranges::views::join | ranges::to<std::string>; })
-          .and_then([](auto &&str) -> Result<Value> {
-            auto value = google::protobuf::Value();
-            if (google::protobuf::json::JsonStringToMessage(str, value.mutable_struct_value())
-                    .ok()) {
-              assert(!value.has_list_value());
-              return value;
-            }
-            return std::unexpected(Error::kJsonError);
-          }));
+std::optional<Error> appendRecordLiteral(Env &env, CommandBuilder &cmd, Token token) {
+  if (auto str = lift(cmd.operands | ranges::views::transform(ToJSON(env, cmd.scope)))
+                     .transform([](auto &&s) {
+                       return s | ranges::views::join | ranges::to<std::string>;
+                     })) {
+    cmd.operands.clear();
+    cmd.record_literal += *str;
+
+  } else {
+    return str.error();
+  }
+
+  cmd.record_literal += token | ranges::to<std::string>;
+
+  return {};
 }
 
 //
@@ -356,7 +354,7 @@ struct StreamParserImpl final : StreamParser {
  private:
   using OpPred = std::function<bool(Token)>;
 
-  auto toOperand(ranges::bidirectional_range auto token) -> Operand;
+  auto toOperand(ranges::bidirectional_range auto token) -> std::optional<Operand>;
 
   auto performOp(const OpPred &pred) -> Result<void>;
 
@@ -400,7 +398,7 @@ auto StreamParserImpl::parse(
       auto &rhs = cmds.emplace();
 
       rhs.scope = lhs.scope;
-      rhs.record_level = lhs.record_level;
+      rhs.record_literal = lhs.record_literal;
 
     } else if (cmds.top().closure) {
       return errorStream(Error::kMissingOperator);
@@ -433,7 +431,7 @@ auto StreamParserImpl::parse(
       rhs.scope = lhs.scope;
 
       if (!is_closure) {
-        rhs.record_level = lhs.record_level + 1;
+        rhs.record_literal += "{";
       }
 
     } else if (token == "}") {
@@ -444,11 +442,20 @@ auto StreamParserImpl::parse(
       auto rhs = std::move(cmds.top());
       cmds.pop();
 
-      if (rhs.record_level == 0) {
+      if (rhs.record_literal.empty()) {
         cmds.top().closure = std::move(rhs).factory(env);
 
       } else {
-        cmds.top().operands.push_back(toJSON(env, rhs.scope, std::move(rhs.operands)));
+        if (auto err = appendRecordLiteral(env, rhs, "}"sv)) {
+          return errorStream(*err);
+        }
+        auto value = google::protobuf::Value();
+        if (!google::protobuf::json::JsonStringToMessage(rhs.record_literal,
+                                                         value.mutable_struct_value())
+                 .ok()) {
+          return errorStream(Error::kJsonError);
+        }
+        cmds.top().operands.push_back(std::move(value));
       }
 
       // todo: generalize open ternary
@@ -458,7 +465,7 @@ auto StreamParserImpl::parse(
       auto &rhs = cmds.emplace();
 
       rhs.scope = lhs.scope;
-      rhs.record_level = lhs.record_level;
+      rhs.record_literal = std::move(lhs.record_literal);
 
     } else if (token == "->") {
       auto &lhs = cmds.top();
@@ -477,8 +484,19 @@ auto StreamParserImpl::parse(
       };
       lhs.operands.clear();
 
+    } else if (auto value = toOperand(token)) {
+      cmds.top().operands.push_back(std::move(*value));
+
+    } else if (!cmds.top().record_literal.empty()) {
+      if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
+        return errorStream(res.error());
+      }
+      if (auto err = appendRecordLiteral(env, cmds.top(), token)) {
+        return errorStream(*err);
+      }
+
     } else {
-      cmds.top().operands.push_back(toOperand(token));
+      cmds.top().operands.push_back(Word(token));
     }
   }
 
@@ -491,7 +509,7 @@ auto StreamParserImpl::parse(
   return std::move(cmds.top()).build(env);
 }
 
-auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Operand {
+auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> std::optional<Operand> {
   auto &scope = cmds.top().scope;
 
   if (ranges::starts_with(token, "$"sv)) {
@@ -531,7 +549,7 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> Oper
              return lookupField(std::move(value), path);
            });
   }
-  return Word{token};
+  return {};
 }
 
 auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
