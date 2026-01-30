@@ -114,6 +114,14 @@ BOOST_AUTO_TEST_CASE(strings) {
   // BOOST_TEST(parse("FOO=(1..3) `foo $FOO`") == makeValues("foo 1 2 3"sv), each);
 }
 
+BOOST_AUTO_TEST_CASE(options) {
+  BOOST_TEST(parse("-ABC") == makeValues(JSON("{ A: true, B: true, C: true }")), each);
+  BOOST_TEST(parse("--foo") == makeValues(JSON("{ foo: true }")), each);
+  BOOST_TEST(parse("--no-foo") == makeValues(JSON("{ foo: false }")), each);
+  // todo: fix assigment
+  // BOOST_TEST(parse("--foo=bar") == makeValues(JSON("{ foo: \"bar\" }")), each);
+}
+
 BOOST_AUTO_TEST_CASE(parentheses) {
   BOOST_TEST(parse("1 -2 + 3") == makeValues(2), each);
   BOOST_TEST(parse("1 (-2 + 3)") == makeValues(1, 1), each);

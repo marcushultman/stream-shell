@@ -540,6 +540,32 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> std:
     return val;
   }
 
+  auto make_bool = [](bool b) {
+    auto val = google::protobuf::Value();
+    val.set_bool_value(b);
+    return val;
+  };
+
+  if (ranges::starts_with(token, "--"sv)) {
+    auto key = token | ranges::views::drop(2);
+
+    google::protobuf::Value val;
+    auto *fields = val.mutable_struct_value()->mutable_fields();
+
+    if (ranges::starts_with(key, "no-"sv)) {
+      fields->emplace(key | ranges::views::drop(3) | ranges::to<std::string>, make_bool(false));
+    } else {
+      fields->emplace(key | ranges::to<std::string>, make_bool(true));
+    }
+    return val;
+  } else if (ranges::starts_with(token, "-"sv)) {
+    google::protobuf::Value val;
+    for (auto flag : token | ranges::views::drop(1)) {
+      val.mutable_struct_value()->mutable_fields()->emplace(std::string(1, flag), make_bool(true));
+    }
+    return val;
+  }
+
   auto path = token | ranges::views::split('.');
 
   // todo: fix closure variable in record
