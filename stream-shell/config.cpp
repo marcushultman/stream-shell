@@ -71,11 +71,6 @@ bool merge(Env &env, Buffer &buffer, const StreamRef &ref) {
   return f && merge(env, buffer, f({}));
 }
 
-bool merge(Env &, Buffer &buffer, const Word &word) {
-  buffer.positionals->add_values()->set_string_value(Token(word.value) | ranges::to<std::string>);
-  return true;
-}
-
 auto to_string(auto value) {
   std::string arg;
   assert(google::protobuf::util::MessageToJsonString(value, &arg).ok());

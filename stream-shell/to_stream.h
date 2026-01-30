@@ -28,11 +28,6 @@ struct ToStream {
     }
     return ranges::yield(std::unexpected(Error::kInvalidStreamRef));
   }
-  auto operator()(const Word &word) const -> Stream {
-    google::protobuf::Value value;
-    value.set_string_value(Token(word.value) | ranges::to<std::string>);
-    return ranges::yield(std::move(value));
-  }
 
   auto operator()(const Operand &operand) const -> Stream { return std::visit(*this, operand); }
 

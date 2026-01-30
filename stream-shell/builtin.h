@@ -13,7 +13,7 @@
 
 using namespace std::string_view_literals;
 
-inline std::optional<Stream> runBuiltin(Token cmd,
+inline std::optional<Stream> runBuiltin(std::string_view cmd,
                                         const google::protobuf::Struct &config,
                                         Stream input,
                                         Env &env) {

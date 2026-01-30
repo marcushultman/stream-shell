@@ -101,11 +101,11 @@ struct CommandBuilder {
                  if (auto config = toConfig(env, std::span{operands}.subspan(1)); !config) {
                    return ranges::yield(std::unexpected(config.error()));
 
-                 } else if (auto stream = runBuiltin(cmd->value, *config, input, env)) {
+                 } else if (auto stream = runBuiltin(*cmd, *config, input, env)) {
                    return *stream;
 
-                 } else if (isExecutableInPath(cmd->value)) {
-                   return runChildProcess(cmd->value, *config, input, env);
+                 } else if (isExecutableInPath(*cmd)) {
+                   return runChildProcess(*cmd, *config, input, env);
                  }
                }
 
@@ -126,14 +126,14 @@ struct CommandBuilder {
   }
 
  private:
-  static const Word *frontCommand(const Scope &scope, const Operand &operand) {
-    if (auto *word = std::get_if<Word>(&operand)) {
+  static const std::string *frontCommand(const Scope &scope, const Operand &operand) {
+    if (auto *word = getIfString(operand)) {
       return scope.vars.contains(*word) ? nullptr : word;
     }
     return nullptr;
   }
 
-  static Stream runChildProcess(Token cmd,
+  static Stream runChildProcess(std::string_view cmd,
                                 const google::protobuf::Struct &config,
                                 Stream input,
                                 Env &env) {
@@ -168,7 +168,7 @@ struct CommandBuilder {
       close(pty_fd);
       close(tty_fd);
 
-      exec(cmd | ranges::to<std::string>, toArgs(config));
+      exec(std::string(cmd), toArgs(config));
       _exit(1);
 
     } else if (pid > 0) {
@@ -208,8 +208,8 @@ struct CommandBuilder {
     return std::filesystem::is_regular_file(p) && (access(p.c_str(), X_OK) == 0);
   }
 
-  static bool isExecutableInPath(std::ranges::common_range auto cmd) {
-    auto path = std::filesystem::path{cmd.begin(), cmd.end()};
+  static bool isExecutableInPath(std::string_view cmd) {
+    auto path = std::filesystem::path{cmd};
 
     if (std::ranges::contains(path.string(), '/')) {
       return isExecutable(path);
@@ -226,7 +226,6 @@ struct CommandBuilder {
                                 }),
                             isExecutable);
   }
-  static bool isExecutableInPath(Token cmd) { return isExecutableInPath(cmd | std::views::common); }
 };
 
 //
@@ -317,7 +316,6 @@ struct ToJSON {
         });
   }
   auto operator()(const StreamRef &ref) const -> Result<std::string> { return _to_str(this, ref); }
-  auto operator()(const Word &word) const -> Result<std::string> { return _to_str(word); }
 
   auto operator()(const Operand &operand) const -> Result<std::string> {
     return std::visit(*this, operand);
@@ -469,11 +467,11 @@ auto StreamParserImpl::parse(
 
     } else if (token == "->") {
       auto &lhs = cmds.top();
-      auto *var_name = lhs.operands.size() == 1 ? std::get_if<Word>(&lhs.operands[0]) : nullptr;
+      auto *var_name = lhs.operands.size() == 1 ? getIfString(lhs.operands[0]) : nullptr;
       if (!var_name || lhs.upstream) {
         return errorStream(Error::kInvalidClosureSignature);
       }
-      lhs.upstream = [var = lhs.scope.add(std::move(*var_name))](Stream input) -> Stream {
+      lhs.upstream = [var = lhs.scope.add(*var_name)](Stream input) -> Stream {
         auto results = input | ranges::views::take(1) | ranges::to<std::vector>;
         if (results.empty() || !results.front()) {
           return results.empty() ? errorStream(Error::kInvalidClosureSignature)
@@ -496,7 +494,9 @@ auto StreamParserImpl::parse(
       }
 
     } else {
-      cmds.top().operands.push_back(Word(token));
+      auto value = google::protobuf::Value();
+      value.set_string_value(token | ranges::to<std::string>);
+      cmds.top().operands.push_back(std::move(value));
     }
   }
 
@@ -543,7 +543,7 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> std:
   auto path = token | ranges::views::split('.');
 
   // todo: fix closure variable in record
-  if (auto it = scope.vars.find(Word{ranges::front(path)}); it != scope.vars.end()) {
+  if (auto it = scope.vars.find(ranges::front(path)); it != scope.vars.end()) {
     return ranges::yield(0) | ranges::views::transform([var = it->second](auto) { return *var; }) |
            ranges::views::for_each([path = path | ranges::views::drop(1)](auto value) {
              return lookupField(std::move(value), path);
@@ -618,7 +618,7 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
         env.setEnv(*ref, std::move(rhs).factory(env));
         lhs.operands.clear();
 
-      } else if (auto *var = std::get_if<Word>(&lhs.operands[0])) {
+      } else if (auto *var = getIfString(lhs.operands[0])) {
         auto operands = rhs.operands;
         if (!operands.empty()) {
           operands.erase(operands.begin());

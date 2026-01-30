@@ -65,9 +65,6 @@ struct ToString final {
       }
       return std::unexpected(Error::kInvalidStreamRef);
     }
-    auto operator()(const Word &word) const -> Result {
-      return Token(word.value) | ranges::to<std::string>;
-    }
 
     //
     auto operator()(const StreamRef &ref) const -> Result { return (*this)(this, ref); }

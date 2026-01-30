@@ -7,7 +7,6 @@
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
-#include "variant_ext.h"
 
 //
 
@@ -25,15 +24,25 @@ inline auto operator!=(std::ranges::range auto lhs, std::ranges::range auto rhs)
   return !(lhs == rhs);
 }
 
-template <ranges::category C>
-inline auto operator==(ranges::any_view<const char, C> lhs, const char *rhs) {
-  return ranges::equal(lhs, std::string_view(rhs));
+namespace ranges {
+
+inline auto operator<(std::string_view lhs, range auto rhs) {
+  return lexicographical_compare(lhs, rhs);
 }
 
-template <ranges::category C>
-inline auto operator!=(ranges::any_view<const char, C> lhs, const char *rhs) {
+inline auto operator<(range auto lhs, std::string_view rhs) {
+  return lexicographical_compare(lhs, rhs);
+}
+
+inline auto operator==(range auto lhs, std::string_view rhs) {
+  return equal(lhs, rhs);
+}
+
+inline auto operator!=(range auto lhs, std::string_view rhs) {
   return !(lhs == rhs);
 }
+
+}  // namespace ranges
 
 //
 
