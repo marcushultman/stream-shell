@@ -230,6 +230,15 @@ struct CommandBuilder {
 
 //
 
+auto isStreamRefAssignment(const CommandBuilder &lhs,
+                           std::ranges::range auto op) -> const StreamRef * {
+  return op == "=" && lhs.operands.size() == 1 ? std::get_if<StreamRef>(&lhs.operands[0]) : nullptr;
+}
+
+auto isEnvOverride(const CommandBuilder &lhs, std::ranges::range auto op) -> const std::string * {
+  return op == "=" && lhs.operands.size() == 1 ? getIfString(lhs.operands[0]) : nullptr;
+}
+
 auto unaryLeftOp(bool unary, std::ranges::range auto op) {
   if ((op == "+" || op == "-") && unary) return 10;
   if (op == "!") return 10;
@@ -588,7 +597,26 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
     auto lhs = std::move(cmds.top());
     cmds.pop();
 
-    if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
+    if (auto *ref = isStreamRefAssignment(lhs, ops.top())) {
+      env.setEnv(*ref, std::move(rhs).factory(env));
+      lhs.operands.clear();
+      cmds.push(std::move(lhs));
+
+    } else if (auto *var = isEnvOverride(lhs, ops.top())) {
+      if (!(lhs.operands = rhs.operands).empty()) {
+        lhs.operands.erase(lhs.operands.begin());
+        rhs.operands.resize(1);
+      }
+      lhs.scope.env_overrides[*var] = std::move(rhs).factory(env);
+      cmds.push(std::move(lhs));
+
+    } else if (ops.top() == "=") {
+      if (lhs.operands.size() != 1) {
+        return std::unexpected(Error::kMissingOperand);
+      }
+      return std::unexpected(Error::kInvalidStreamRef);
+
+    } else if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
       if (rhs.operands.empty()) {
         return std::unexpected(Error::kMissingOperand);
       }
@@ -634,29 +662,6 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
     } else if (ops.top() == ";") {
       ranges::for_each(std::move(lhs).build(env), [](auto &&) {});
       cmds.push(std::move(rhs));
-
-    } else if (ops.top() == "=") {
-      if (lhs.operands.size() != 1) {
-        return std::unexpected(Error::kMissingOperand);
-      }
-
-      if (auto *ref = std::get_if<StreamRef>(&lhs.operands[0])) {
-        env.setEnv(*ref, std::move(rhs).factory(env));
-        lhs.operands.clear();
-
-      } else if (auto *var = getIfString(lhs.operands[0])) {
-        auto operands = rhs.operands;
-        if (!operands.empty()) {
-          operands.erase(operands.begin());
-          rhs.operands.resize(1);
-        }
-        lhs.scope.env_overrides[*var] = std::move(rhs).factory(env);
-        lhs.operands = operands;
-
-      } else {
-        return std::unexpected(Error::kInvalidStreamRef);
-      }
-      cmds.push(std::move(lhs));
 
     } else if (ops.top() == "|") {
       rhs.upstream = std::move(lhs).factory(env);
