@@ -513,14 +513,14 @@ auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> std:
   auto &scope = cmds.top().scope;
 
   if (ranges::starts_with(token, "$"sv)) {
-    return StreamRef(token | ranges::views::drop(1));
+    return StreamRef::fromToken(token);
   }
   if (ranges::starts_with(token, "`"sv)) {
     auto to_str = ToString::Operand(env, scope, true);
     return ranges::yield(lift(trim(token, 1, 1) | ranges::views::split(' ') |
                               ranges::views::transform([&](auto &&token) -> Result<std::string> {
                                 if (ranges::starts_with(token, "$"sv)) {
-                                  return to_str(StreamRef(token | ranges::views::drop(1)));
+                                  return to_str(StreamRef::fromToken(token));
                                 }
                                 return token | ranges::to<std::string>;
                               }))

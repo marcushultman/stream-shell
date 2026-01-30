@@ -20,7 +20,7 @@ struct ProdEnv final : Env {
     } else if (auto *home_dir = getenv("HOME")) {
       load(std::string(home_dir) + "/.config");
     }
-    setEnv({"STSH_VERSION"sv}, [](auto) {
+    setEnv({"STSH_VERSION"}, [](auto) {
       auto value = google::protobuf::Value();
       value.set_string_value(STSH_VERSION);
       return ranges::yield(value);
@@ -30,7 +30,7 @@ struct ProdEnv final : Env {
   StreamFactory getEnv(StreamRef ref) const override {
     if (auto it = _cache.find(ref); it != _cache.end()) {
       return it->second;
-    } else if (auto str = std::getenv((ref.name | ranges::to<std::string>).c_str())) {
+    } else if (auto str = std::getenv(ref.name.c_str())) {
       return _cache[ref] = [sv = std::string_view(str)](auto) {
         return sv | ranges::views::split(':') | ranges::views::transform([](auto chunk) {
                  google::protobuf::Value value;

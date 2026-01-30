@@ -25,10 +25,13 @@ inline auto operator!=(std::ranges::range auto lhs, std::ranges::range auto rhs)
   return !(lhs == rhs);
 }
 
-inline auto operator==(std::ranges::range auto lhs, const char *rhs) {
+template <ranges::category C>
+inline auto operator==(ranges::any_view<const char, C> lhs, const char *rhs) {
   return ranges::equal(lhs, std::string_view(rhs));
 }
-inline auto operator!=(std::ranges::range auto lhs, const char *rhs) {
+
+template <ranges::category C>
+inline auto operator!=(ranges::any_view<const char, C> lhs, const char *rhs) {
   return !(lhs == rhs);
 }
 
@@ -72,8 +75,15 @@ using Stream = ranges::any_view<Result<Value>>;
 using StreamFactory = std::function<Stream(Stream)>;
 
 struct StreamRef {
-  Token name;
-  auto operator<(const StreamRef &rhs) const { return name < rhs.name; }
+  std::string name;
+
+  auto operator<=>(const StreamRef &) const = default;
+
+  StreamRef static fromToken(Token token) {
+    using namespace std::string_view_literals;
+    assert(ranges::starts_with(token, "$"sv));
+    return {.name = token | ranges::views::drop(1) | ranges::to<std::string>};
+  }
 };
 
 struct Env {
