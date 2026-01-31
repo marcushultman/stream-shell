@@ -69,6 +69,7 @@ enum class Error : int {
   kInvalidNumberOp,
   kInvalidBoolOp,
   kInvalidStringOp,
+  kInvalidStructOp,
   kInvalidOp,
 
   kConfigError,

@@ -253,6 +253,7 @@ auto unaryRightOp(bool unary, std::ranges::range auto op) {
 
 auto binaryOp(std::ranges::range auto op) {
   // if (op == "??") return ??;
+  if (op == "=") return 3;
   if (op == "||" || op == "&&") return 5;
   if (op == "==" || op == "!=") return 6;
   if (op == "<" || op == "<=" || op == ">" || op == ">=" || op == "..") return 7;
@@ -272,7 +273,7 @@ auto precedence(const CommandBuilder &lhs, std::ranges::range auto op) {
   if (auto p = binaryOp(op)) return p;
   if (auto p = ternaryOp(op)) return p;
   if (op == ";") return 2;
-  if (op == "=" || op == "|") return 3;
+  if (op == "|") return 3;
   return 0;
 }
 
@@ -609,12 +610,6 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
       }
       lhs.scope.env_overrides[*var] = std::move(rhs).factory(env);
       cmds.push(std::move(lhs));
-
-    } else if (ops.top() == "=") {
-      if (lhs.operands.size() != 1) {
-        return std::unexpected(Error::kMissingOperand);
-      }
-      return std::unexpected(Error::kInvalidStreamRef);
 
     } else if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
       if (rhs.operands.empty()) {

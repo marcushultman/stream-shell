@@ -118,8 +118,7 @@ BOOST_AUTO_TEST_CASE(options) {
   BOOST_TEST(parse("-ABC") == makeValues(JSON("{ A: true, B: true, C: true }")), each);
   BOOST_TEST(parse("--foo") == makeValues(JSON("{ foo: true }")), each);
   BOOST_TEST(parse("--no-foo") == makeValues(JSON("{ foo: false }")), each);
-  // todo: fix assigment
-  // BOOST_TEST(parse("--foo=bar") == makeValues(JSON("{ foo: \"bar\" }")), each);
+  BOOST_TEST(parse("--foo=bar") == makeValues(JSON("{ foo: [\"bar\"] }")), each);
 }
 
 BOOST_AUTO_TEST_CASE(parentheses) {

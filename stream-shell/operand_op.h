@@ -43,6 +43,20 @@ struct TernaryConditional {
   Stream operator()(const auto &...) { return ranges::yield(std::unexpected(Error::kInvalidOp)); }
 };
 
+struct Assignment {
+  Stream operator()(const google::protobuf::Value &lhs, const google::protobuf::Value &rhs) {
+    if (!lhs.has_struct_value() || lhs.struct_value().fields().size() != 1) {
+      return ranges::yield(std::unexpected(Error::kInvalidStructOp));
+    }
+    google::protobuf::Value result;
+    *(*result.mutable_struct_value()->mutable_fields())[lhs.struct_value().fields().begin()->first]
+         .mutable_list_value()
+         ->add_values() = rhs;
+    return ranges::yield(result);
+  }
+  Stream operator()(const auto &...) { return ranges::yield(std::unexpected(Error::kInvalidOp)); }
+};
+
 struct Iota {
   auto operator()(int64_t from) -> Stream { return ranges::views::iota(from) | toNumber; }
   auto operator()(int64_t from, int64_t to) -> Stream {
@@ -118,6 +132,7 @@ struct OperandOp {
   auto operator()(const auto &...v) const -> Operand {
     if (op == ":") return TernaryConditional()(v...);
     return ValueTransform([op = op](const auto &...v) -> Stream {
+      if (op == "=") return Assignment()(v...);
       if (op == "||") return ValueOp<std::logical_or<>, bool>()(v...);
       if (op == "&&") return ValueOp<std::logical_and<>, bool>()(v...);
       if (op == "==") return ValueOp<std::equal_to<>, bool>()(v...);
