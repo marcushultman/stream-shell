@@ -29,9 +29,9 @@ struct ProdEnv final : Env {
 
   StreamFactory getEnv(StreamRef ref) const override {
     if (auto it = _cache.find(ref); it != _cache.end()) {
-      return it->second;
+      return it->second.stream;
     } else if (auto str = std::getenv(ref.name.c_str())) {
-      return _cache[ref] = [sv = std::string_view(str)](auto) {
+      return _cache[ref].stream = [sv = std::string_view(str)](auto) {
         return sv | ranges::views::split(':') | ranges::views::transform([](auto chunk) {
                  google::protobuf::Value value;
                  value.set_string_value(chunk | ranges::to<std::string>);
@@ -54,9 +54,19 @@ struct ProdEnv final : Env {
         chdir(pwd->c_str());
       }
     }
-
-    _cache[ref] = std::move(stream);
+    auto &entry = _cache[ref];
+    entry.stream = std::move(stream);
+    entry.version++;
+    _cv.notify_all();
   }
+  bool blockUntilChange(StreamRef ref) override {
+    std::unique_lock lock(_mutex);
+    _stop = false;
+    auto &entry = _cache[ref];
+    _cv.wait(lock, [&, version = entry.version] { return entry.version != version || _stop; });
+    return !_stop;
+  }
+
   bool sleepUntil(std::chrono::steady_clock::time_point t) override {
     std::unique_lock lock(_mutex);
     _stop = false;
@@ -97,7 +107,12 @@ struct ProdEnv final : Env {
 
   std::vector<std::string> _config;
   std::unique_ptr<StreamParser> _parser = makeStreamParser(*this);
-  mutable std::map<StreamRef, StreamFactory, std::less<>> _cache;
+
+  struct EnvEntry {
+    StreamFactory stream;
+    int version = 0;
+  };
+  mutable std::map<StreamRef, EnvEntry, std::less<>> _cache;
   std::condition_variable _cv;
   std::mutex _mutex;
   bool _stop = false;

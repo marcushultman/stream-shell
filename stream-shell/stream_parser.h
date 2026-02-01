@@ -52,7 +52,9 @@ using Value = std::variant<google::protobuf::BytesValue,  // Bytes
 
 enum class Error : int {
   kSuccess = 0,
-  kUnknown = 1,
+  kUnknown,
+  kAborted,
+
   kParseError,
   kJsonError,
 
@@ -100,6 +102,8 @@ struct Env {
   virtual ~Env() = default;
   virtual StreamFactory getEnv(StreamRef) const = 0;
   virtual void setEnv(StreamRef, StreamFactory) = 0;
+  virtual bool blockUntilChange(StreamRef) = 0;
+
   virtual bool sleepUntil(std::chrono::steady_clock::time_point) = 0;
   virtual ssize_t read(int fd, google::protobuf::BytesValue &bytes) = 0;
 };

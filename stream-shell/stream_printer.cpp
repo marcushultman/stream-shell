@@ -85,7 +85,9 @@ void printStream(Stream &&stream, const Prompt &prompt) {
   }
   for (auto &&[i, result] : ranges::views::enumerate(std::move(stream))) {
     if (!result) {
-      std::cerr << std::format("Failed with code: {}", int(result.error())) << std::endl;
+      if (result.error() != Error::kAborted) {
+        std::cerr << std::format("Failed with code: {}", int(result.error())) << std::endl;
+      }
       return;
     } else if (!(*consumer)(i, *result)) {
       return;

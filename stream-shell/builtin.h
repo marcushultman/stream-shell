@@ -9,6 +9,7 @@
 #include "builtins/echo.h"
 #include "builtins/get.h"
 #include "builtins/now.h"
+#include "builtins/observe.h"
 #include "stream-shell/stream_transform.h"
 
 using namespace std::string_view_literals;
@@ -31,6 +32,9 @@ inline std::optional<Stream> runBuiltin(std::string_view cmd,
 
   } else if (cmd == "now"sv) {
     return now(env);
+
+  } else if (cmd == "observe"sv) {
+    return observe(env, config);
 
   } else if (cmd == "exit"sv) {
     return ranges::views::generate([]() -> Value { std::exit(0); });

@@ -6,6 +6,7 @@ cc_library(
     "builtins/echo.h",
     "builtins/get.h",
     "builtins/now.h",
+    "builtins/observe.h",
     "builtin.h",
     "config.h",
     "lift.h",
