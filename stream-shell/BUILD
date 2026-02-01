@@ -9,6 +9,7 @@ cc_library(
     "builtins/observe.h",
     "builtin.h",
     "config.h",
+    "env_impl.h",
     "lift.h",
     "scope.h",
     "stream_parser.h",
@@ -25,6 +26,7 @@ cc_library(
   ],
   srcs = [
     "config.cpp",
+    "env_impl.cpp",
     "stream_parser.cpp",
     "stream_printer.cpp",
     "tokenize.cpp",
