@@ -59,27 +59,20 @@ struct SlicePrinter final : Printer {
 };
 
 struct REPLPrinter final : Printer {
-  REPLPrinter(bool all, const Prompt &prompt) : _all{all}, _prompt{prompt} {}
+  REPLPrinter(const Prompt &prompt) : _prompt{prompt} {}
 
   bool print(size_t i, std::string_view value) override {
-    if (i == 0 || _all) {
-      std::cout << value << std::endl;
-      return true;
-    } else if (auto line = _prompt("Next [Enter]")) {
-      std::cout << value << std::endl;
-      _all = line == std::string_view(":");
-      return true;
-    }
-    return false;
+    std::cout << value << std::endl;
+    return _prompt("Next [Enter]");
   }
-  bool _all = false;
+
   const Prompt &_prompt;
 };
 
 }  // namespace
 
 void printStream(Stream &&stream, const Prompt &prompt) {
-  auto consumer = std::make_unique<REPLPrinter>(false, prompt);
+  auto consumer = std::make_unique<REPLPrinter>(prompt);
   if (!consumer) {
     return;
   }
