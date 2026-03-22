@@ -1,6 +1,7 @@
-#include "linenoise.h"
+#include "readline_impl.h"
 #include "repl.h"
 
 int main(int argc, char **argv) {
-  return repl(linenoise), 0;
+  ReadlinePromptImpl readline;
+  return repl(readline), 0;
 }

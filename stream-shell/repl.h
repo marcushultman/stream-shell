@@ -5,20 +5,35 @@
 #include <range/v3/all.hpp>
 #include <unistd.h>
 #include "env_impl.h"
+#include "readline.h"
 #include "stream_parser.h"
 #include "stream_printer.h"
 #include "tokenize.h"
 
 static EnvImpl *s_env = nullptr;
+static ReadlinePrompt *s_readline = nullptr;
 
-inline void repl(Prompt prompt) {
+inline void repl(ReadlinePrompt &readline) {
   EnvImpl env;
-  s_env = &env;
   auto parser = makeStreamParser(env);
 
-  for (const char *line; (line = prompt("stream-shell v0.1 🚀> "));) {
-    std::signal(SIGINT, [](int) { s_env->interrupt(); });
-    printStream(parser->parse(tokenize(std::string_view(line))), [&](auto s) { return prompt(s); });
-    std::signal(SIGINT, nullptr);
+  s_env = &env;
+  s_readline = &readline;
+
+  std::signal(SIGINT, [](int) {
+    s_env->interrupt();
+    s_readline->interrupt();
+  });
+
+  for (;;) {
+    auto future = readline.prompt("stream-shell v0.1 🚀> ");
+
+    // todo: refresh prompt
+
+    if (auto line = future.get()) {
+      printStream(parser->parse(tokenize(*line)), readline);
+    } else {
+      break;
+    }
   }
 }

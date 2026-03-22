@@ -1,7 +1,6 @@
 #pragma once
 
+#include "readline.h"
 #include "stream_parser.h"
 
-using Prompt = std::function<const char *(const char *prompt)>;
-
-void printStream(Stream &&, const Prompt &);
+void printStream(Stream &&, ReadlinePrompt &);

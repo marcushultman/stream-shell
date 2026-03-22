@@ -17,6 +17,8 @@ cc_library(
     "stream_transform.h",
     "operand_op.h",
     "operand.h",
+    "readline.h",
+    "readline_impl.h",
     "repl.h",
     "to_stream.h",
     "to_string.h",
@@ -51,7 +53,7 @@ cc_binary(
     "main.cpp",
   ],
   deps = [
-    "@linenoise.cpp//:linenoise-cpp",
+    "@readline//:readline",
     "stream-shell-lib"
   ],
 )

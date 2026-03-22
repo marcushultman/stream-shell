@@ -12,13 +12,3 @@ cc_test(
     "tokenize_test.cpp",
   ],
 )
-
-cc_binary(
-  name = "linenoise-example",
-  srcs = [
-    "example.cpp",
-  ],
-  deps= [
-    "@linenoise.cpp//:linenoise-cpp",
-  ],
-)

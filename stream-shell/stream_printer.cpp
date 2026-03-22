@@ -59,19 +59,19 @@ struct SlicePrinter final : Printer {
 };
 
 struct REPLPrinter final : Printer {
-  REPLPrinter(const Prompt &prompt) : _prompt{prompt} {}
+  REPLPrinter(ReadlinePrompt &prompt) : _prompt{prompt} {}
 
   bool print(size_t i, std::string_view value) override {
     std::cout << value << std::endl;
-    return _prompt("Next [Enter]");
+    return _prompt.prompt("Next [Enter]").get().has_value();
   }
 
-  const Prompt &_prompt;
+  ReadlinePrompt &_prompt;
 };
 
 }  // namespace
 
-void printStream(Stream &&stream, const Prompt &prompt) {
+void printStream(Stream &&stream, ReadlinePrompt &prompt) {
   auto consumer = std::make_unique<REPLPrinter>(prompt);
   if (!consumer) {
     return;

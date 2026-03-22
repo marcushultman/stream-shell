@@ -6,16 +6,7 @@ bazel_dep(name = "protobuf", version = "30.0")
 bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
 bazel_dep(name = "boost.test", version = "1.87.0", dev_dependency = True)
 bazel_dep(name = "emsdk", version = "4.0.7", dev_dependency = True)
-
-bazel_dep(name = "linenoise.cpp", version = "0.1.0")
-git_override(
-  module_name = "linenoise.cpp",
-  remote = "https://github.com/ericcurtin/linenoise.cpp.git",
-  commit = "46ccdf825b47a813d9a1f926043cf8ebd662e371",
-  patches = [
-    "//patches:linenoise-cpp.patch"
-  ],
-)
+bazel_dep(name = "readline", version = "8.3")
 
 git_override(
   module_name = "hedron_compile_commands",
