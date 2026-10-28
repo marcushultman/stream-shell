@@ -22,66 +22,21 @@ Even single value expressions make up a stream with 1 value:
 I'm just a single string
 ```
 
-Other expressions are more obvious to represent a stream, such as a numeric range:
+A stream can be made up by different value types:
 
 ```
-> 1..3
+> true 1 `foo`
+true
 1
-2
-3
+foo
 ```
 
-Streams can contain more complex values too, in the form of records. Records can be strongly typed by using a protobuf schema provided by the shell itself, plugins, or the user. Regardless if a schema exists or not, records are always convertible to JSON or proto3 binary format.
+Streams can contain more complex values too, in the form of records. Records may be strongly typed using a schema, and are convertible to and from JSON.
 
 ```
-> user.proto.Person { name: "Albert" } { name: "Bernard" }
+> { name: "Albert" } { name: "Bernard" }
 { name: "Albert" }
 { name: "Bernard" }
-```
-
-### Expressions
-
-A stream expression is evaluated to a stream, and a value expression is evaluated to a value in a stream. Many of the value types can be used with arithmetic operations. An operation has higher precedence than stream value delimiters (e.g. whitespace, newline), even when there is additional whitespace between the expressions and operators.
-
-```
-> 1 + 2 3 "foo" + "bar" 10 % 3
-3
-3
-"foobar"
-1
-```
-```
-> 1 -2 + 3
-2
-```
-Parentheses can be used to isolate value expressions, and force anonymous records.
-```
-> 1 (-2 + 3)
-1
-1
-```
-```
-> (1 -2)(+3)
--1
-3
-```
-```
-> 1 | ({ name: "Bernard" })
-{ name: "Bernard" }
-```
-
-Options & flags are shorthand syntax for records.
-```
-> --foo --no-bar -ABC
-{ foo: true }
-{ bar: false }
-{ A: true, B: true, C: true }
-```
-
-Single-value records like these can also be assigned to.
-```
-> --foo=42 --bar="foo"
-{ foo: 42, bar: "foo" }
 ```
 
 Attempting to put a stream in another stream will result in a flattened stream. This is a useful property in order to concatenate or combine streams.
@@ -95,26 +50,93 @@ Attempting to put a stream in another stream will result in a flattened stream. 
 5
 ```
 
+### Expressions
+
+A stream expression is evaluated to a stream, and a value expression is evaluated to a value in a stream. Many of the value types can be used with arithmetic operations.
+
+```
+> 1 + 2 3 "foo" + "bar" 10 % 3
+3
+3
+"foobar"
+1
+```
+
+An operation has higher precedence than stream value delimiters (e.g. whitespace, newline), even when there is additional whitespace between the operands and operators.
+
+```
+> 1 -2 + 3
+2
+```
+
+Parentheses can be used to isolate value expressions (can be seen as flattened sub-streams).
+
+```
+> 1 (-2 + 3)
+1
+1
+```
+```
+> (1 -2)(+3)
+-1
+3
+```
+
+Options & flags are shorthand for records.
+```
+> --foo --no-bar -ABC
+{ foo: true }
+{ bar: false }
+{ A: true, B: true, C: true }
+```
+
+Single-value records like these can also be assigned to.
+```
+> --foo=42 --bar="foo"
+{ foo: 42 }
+{ bar: "foo" }
+```
+
+Records may be strongly typed using a schema.
+
+```
+> app.User { name: "Albert" } { name: "Bernard" }
+app.User { name: "Albert" }
+app.User { name: "Bernard" }
+```
+
+A schema coerces subsequent operands to be instances of the defined type. Parentheses are useful to mark the start and end of records and groups of values.
+
+```
+> (app.User {} --name=Cedric (--name=David --age=35) app.Circle {} { radius: 10 }) {}
+app.User { name: "" }
+app.User { name: "Cedric" }
+app.User { name: "Davic", age: 35 }
+app.Circle { radius: 0 }
+app.Circle { radius: 10 }
+{}
+```
+
 ## Transforming a Stream
 
-Streams are transformed in stages chained together into a pipeline with the `|`-operator. Each stage consists of an expression that gets an input stream and provides an output stream. The input to the first stage of a pipeline is always an empty stream, and the output of the last stage is also the output of the pipeline itself. A stream expression simply discards the input stream and enumerates the values as the output stream. A semi-colon can be used to mark the end of a pipeline, allowing multiple pipelines on a single line, just like other shells.
+Streams are transformed in stages chained together into a pipeline with the `|`-operator. Each stage consists of an expression that gets an input stream and provides an output stream. Normally, the input to the first stage of a pipeline is always an empty stream, and the output of the last stage is also the output of the pipeline as a whole. A stream expression simply discards the input stream and enumerates the values as the output stream.
 
-### Command configuration
+### Command configuration (record)
 
-Like many other shells, if the first value in an expression identifies an executable binary or builtin function, the expression is a command. The remaining command argument values are all conceptually part of the same command configuration, and will be consumed and merged into a single record value upon execution. The configuration record could become serialized into a list of string tokens when used with executable binaries. Record values uses protobuf merging strategy (known types are required to match), whereas primitives are placed in the positional list field keyed by `@`. Whenever a positional is encountered, a nested record is added using the value as key into which subsequent record-values are merged. This way, trivial arguments are bi-directionally convertible.
+Like many other shells, if the first value in an expression identifies an executable binary or builtin function, the expression is interpreted as a command. The remaining values (command arguments) are all conceptually part of the same command configuration, and will be consumed and merged into a single record value upon execution. Record values uses protobuf merging strategy. Whenever a string value is encountered, a nested record is added using the value as key into which subsequent record-values are merged. Non-string primitives (or any values after encoutering `"--"`) will be placed in a list keyed by `"@"`. This way, trivial arguments are bi-directionally convertible.
 
 Example:
 ```
-command --verbose -ab subcommand --no-c --long=1234 "foo" "bar"
+command --verbose -ab subcommand 42 --no-c --long=1234 -- foo
 ```
 is parsed as
 ```
 {
-  "@": ["subcommand", "foo", "bar"],
   "verbose": true,
   "a": true,
   "b": true,
   "subcommand": {
+    "@": [42, "--", "foo"],
     "c": "false",
     "long": 1234,
   }
@@ -123,23 +145,17 @@ is parsed as
 
 ### Executable binaries
 
-Streams can be generated or transformed by executing arbitrary binaries, or scripts, on your system. If the first value is a string primitive that references an executable binary either via a relative path from the current working directory, an absolute path, or found in any of the locations listed in the `$PATH` environment stream, then an instance of that program will launch when the command is executed. The input stream will be serialized and written to stdin and stdout will be parsed as a stream using the [I/O Format](#I/O Format).
+Streams can be generated or transformed by executing arbitrary binaries, or scripts, on your system. If the first value in an expression is a string that references an executable binary either via a relative path from the current working directory, an absolute path, or found in any of the locations listed in the `$PATH` environment stream, then an instance of that program will launch when values are consumed from the output stream of the command. The command configuration record is serialized into a list of string tokens and passed as arguments (mostly resembling the way it was written before merged into a record).
 
 ### Builtins
 
-Stream-shell contains a few builtin commands. The streams accepted as input by-, or generated as output from a builtin already have strong types, so serialization/parsing using the I/O Format is not enacted, and the configuration record is directly accisible by the builtin function logic.
+Stream-shell contains a bunch of builtin commands. The streams accepted as input by-, or generated as output from a builtin already have strong types, and the command configuration record is directly accesible by the builtin implementation.
 
 ### Closures
 
-A closure is declared between brackets `{ [signature ->] [expression] }`, and consist of an optional signature, and an expression that shapes the output of the transformed stream. The closure is invoked for each value in the input stream.
+A closure is declared between brackets `{ [signature ->] [expression] }`, and consist of an optional signature, and an expression that shapes the output of the transformed stream. The closure is invoked for each value in the input stream, flattening the expression output stream as the output.
 
-```
-> 1..2 | { add 1 }
-2
-3
-```
-
-A signature assigns the input value to named variable instead of using it as input stream. This is useful when you need to pass the value in a command configuration.
+A signature assigns the input value to a named variable instead of using it as single-value input stream. This is useful when you need to pass the value in a command configuration.
 
 ```
 > 1..2 | { i -> i i * 2 }
@@ -157,7 +173,7 @@ Albert
 Bernard
 ```
 
-Lists are treated as streams, which means they're flattened into the output stream.
+List values in the output stream are treated as sub-streams, which means they're flattened.
 
 ```
 > { numbers: [1, 2] } { numbers: [3, 4] } | { e -> e.numbers }
@@ -167,31 +183,31 @@ Lists are treated as streams, which means they're flattened into the output stre
 4
 ```
 
+List access by index is made possible using dot-notation too.
+NOTE: bracket notation is not supported.
+
+```
+> { numbers: [1, 2] } { numbers: [3, 4] } | { e -> e.numbers.0 }
+1
+3
+```
+
 You can transform list items just like any other stream.
 
 ```
 > (
     { name: "Albert", friends: [{ name: "Bernard" }, { name: "Cedric" }] } 
     { name: "Derek" }
-  ) | { person -> person.name (person.friends | { get name } | { prepend "- " }) }
+  ) | { person -> person.name (person.friends | { p -> `- ${p.name}` }) }
 Albert
 - Bernard
 - Cedric
 Derek
 ```
 
-## I/O Format
+### Type conversion
 
-Values are serialized to the stdin of a child process (spawned by executing a binary or script) according to certain rules.
-
-- Byte values are passed directly in raw form.
-- Strings are passed directly as UTF-8 encoded strings, with appended newline (`\n`).
-- Strongly typed records are encoded in delimeted protobuf wire format. A delimited message is a varint encoded message size followed by a message of exactly that size.
-- Other primitive values and untyped records are serialized in their JSON form, with appended newline (`\n`).
-
-## Type conversion
-
-The builtin command `to` coerces an input stream into a specific format.
+The builtin command `to` coerces input values into a specific type.
 ```
 > repeat "na" | head 3 | to json
 ["na", "na", "na"]
@@ -205,44 +221,17 @@ The builtin command `to` coerces an input stream into a specific format.
 "na"
 ```
 
-## Consuming a Stream
+## REPL
 
-By default, streams are consumed using an interactive pull-mechanism on the command line, as opposed to the more traditional way of printing everything to stdout as fast as possible. The following example shows an infinite stream of numbers, being pulled on the REPL. Reading can be aborted using Ctrl+C. Finite streams returns after the last value has been printed.
+By default, streams are consumed using an interactive pull-mechanism on the command line, as opposed to the more traditional way of printing everything to stdout as fast as possible. Reading can be interrupted, even when iterating infinite streams. Finite streams returns after the last value has been printed.
 
-```
-> 1..
-[Enter]
-1
-[Enter]
-2
-[Enter]
-3
-[Ctrl+C]
->
-```
+### Value views
 
-### REPL-menu
+For more advanced ways of displaying values, hit [Tab] to cycle through different representations of the same value. 
 
-For more advanced ways of consuming a stream, you can hit [Tab] instead of pulling the next value. Here you can find options like:
-- Print all remaining values
-- Sliced printout (replace already printed values in-place in the terminal)
-- Re-evaluate stream and dump to file
-- Put stream evaluation in background
+### IO-mode
 
-### Automatic
-
-For finite streams, the traditional behavior of printing to stdout line-by-line can be useful and may be used by executing an expression using [Shift + Enter].
-
-```
-> 1..5
-[Shift + Enter]
-1
-2
-3
-4
-5
->
-```
+Executing an interactive command that reads from stdin to get user input and prints to stdout as feedback in Stream-shell will normally not work that well; no input is read and chunks of the output are pulled lazily. To work around this, Stream-shell ships with an IO-mode, where input and output is hooked up directly to the shell in- and output. This seamlessly works with pipelines and closures and can be activated by hitting [Tab] at the end of the prompt.
 
 ## Variables & Environment
 
@@ -287,61 +276,35 @@ bar
 ```
 NOTE: local assignment to env var differs from stream assignment as only the next operand is used.
 
-### Process streams
-
-Any external process that runs dumps their output to a process stream with the same name as their PID (`$<PID>`). Process streams doesn't use back-pressure, hence when consuming it, only new values will be emitted. A process stream is always created for the stream pipeline itself, mirroring the stream output, with a generated name (`$<shell PID>-<UID>`).
-
-These streams are useful in order to listen in to the progress of backgrounded streams, or concurrently running pipelines in a multiplex enironment.
-
-
-```
-> stsh ./count_sheep.st
-> sleep 100
-> $1234
-103 sheeps
-104 sheeps
-```
-
-```
-> iota | { i -> `$i sheeps` }
-> sleep 100
-> $1234-abcd
-103 sheeps
-104 sheeps
-```
-
-
 ## Strings
 
+Backticks are the preferred of writing strings, and can interpolate stream variables (takes the first value of the stream).
+
 ```
->"It's not like using string $NOTAVARIABLE"
-It's not like using string $NOTAVARIABLE
+> `Home: $HOME`
+Home: /Users/marcus
 ```
+
+Single- and double quotation is also supported (no stream variable interpolation).
+
 ```
->'But you can use "quotes" if needed'
-But you can use "quotes" if needed
-```
-```
-> `Backticks interpolates stream variables: $HOME`
-Backticks interpolates stream variables: /Users/marcus
+> "'single'" '"double"'
+'single'
+"double"
 ```
 
 ## Scripting
+
 You can define and consume streams in a script file and run it:
 ```
 #! /bin/stsh
 
-$PATH = $PATH `$HOME/add_one/bin`
+$PATH = $PATH `$HOME/some_script_dir`
 
-add_one $*
+some_script $@
 ```
 
-```
-> add_one_wrapper.st 1..3
-2
-3
-4
-```
+`@` is the variable containing the command configuration record.
 
 ### Configuration
 
