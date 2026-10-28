@@ -68,7 +68,7 @@ bool merge(Env &env, Buffer &buffer, const Stream &stream) {
 
 bool merge(Env &env, Buffer &buffer, const StreamRef &ref) {
   auto f = env.getEnv(ref);
-  return f && merge(env, buffer, f({}));
+  return f && merge(env, buffer, f());
 }
 
 auto to_string(auto value) {

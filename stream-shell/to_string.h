@@ -13,6 +13,7 @@ using namespace std::string_literals;
  * 1. JSON parsing (serialize Operands + join + parse) (no scope vars)
  * 2. String interpolation of StreamRef (including scope vars)
  * 3. Print Value in REPL.
+ * 4. Print Value to child process pipe.
  */
 struct ToString final {
   ToString() = delete;
@@ -59,9 +60,9 @@ struct ToString final {
       if (auto it = _scope.vars.find(ref.name); _escape_var && it != _scope.vars.end()) {
         return std::visit(*self, *it->second);
       } else if (auto it = _scope.env_overrides.find(ref.name); it != _scope.env_overrides.end()) {
-        return (*self)(it->second({}));
+        return (*self)(it->second());
       } else if (auto stream = _env.getEnv(ref)) {
-        return (*self)(stream({}));
+        return (*self)(stream());
       }
       return std::unexpected(Error::kInvalidStreamRef);
     }

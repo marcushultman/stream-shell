@@ -3,10 +3,12 @@
 #include <expected>
 #include <functional>
 #include <string_view>
+#include <utility>
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/struct.pb.h>
 #include <google/protobuf/wrappers.pb.h>
 #include <range/v3/all.hpp>
+#include "process.h"
 
 //
 
@@ -84,7 +86,9 @@ template <typename T>
 using Result = std::expected<T, Error>;
 
 using Stream = ranges::any_view<Result<Value>>;
-using StreamFactory = std::function<Stream(Stream)>;
+
+using EnvStream = std::function<Stream()>;
+using Closure = std::function<Stream(Value)>;
 
 struct StreamRef {
   std::string name;
@@ -100,19 +104,22 @@ struct StreamRef {
 
 struct Env {
   virtual ~Env() = default;
-  virtual StreamFactory getEnv(StreamRef) const = 0;
-  virtual void setEnv(StreamRef, StreamFactory) = 0;
+  virtual EnvStream getEnv(StreamRef) const = 0;
+  virtual void setEnv(StreamRef, EnvStream) = 0;
   virtual bool blockUntilChange(StreamRef) = 0;
 
   virtual bool sleepUntil(std::chrono::steady_clock::time_point) = 0;
   virtual ssize_t read(int fd, google::protobuf::BytesValue &bytes) = 0;
+  virtual Stream exit() = 0;
 };
 
 struct StreamParser {
   virtual ~StreamParser() = default;
-  virtual auto parse(
-      ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>)
-      -> Stream = 0;
+
+  using Tokens = ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>;
+
+  virtual auto parse(Tokens) -> Stream = 0;
+  virtual auto parseInteractive(Tokens) -> void = 0;
 };
 
 /**

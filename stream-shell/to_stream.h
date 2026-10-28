@@ -22,9 +22,9 @@ struct ToStream {
   auto operator()(const Stream &stream) const { return stream; }
   auto operator()(const StreamRef &ref) const -> Stream {
     if (auto it = _scope.env_overrides.find(ref.name); it != _scope.env_overrides.end()) {
-      return it->second({});
+      return it->second();
     } else if (auto stream = _env.getEnv(ref)) {
-      return stream({});
+      return stream();
     }
     return ranges::yield(std::unexpected(Error::kInvalidStreamRef));
   }

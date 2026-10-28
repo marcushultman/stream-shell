@@ -14,14 +14,15 @@ inline Stream observe(Env &env, const google::protobuf::Struct &config) {
   } else {
     auto ref = StreamRef{it->second.list_value().values().at(0).string_value()};
     if (auto factory = env.getEnv(ref)) {
-      return ranges::views::iota(0) | ranges::views::for_each([&env, ref, factory](auto) {
+      return ranges::views::iota(0) |
+             ranges::views::for_each([&env, ref, factory = std::move(factory)](auto) {
                return ranges::views::concat(
-                   factory({}), ranges::yield(0) | ranges::views::for_each([&](auto) -> Stream {
-                                  if (env.blockUntilChange(ref)) {
-                                    return {};
-                                  }
-                                  return ranges::yield(std::unexpected(Error::kAborted));
-                                }));
+                   factory(), ranges::yield(0) | ranges::views::for_each([&](auto) -> Stream {
+                                if (env.blockUntilChange(ref)) {
+                                  return {};
+                                }
+                                return ranges::yield(std::unexpected(Error::kAborted));
+                              }));
              });
     }
   }

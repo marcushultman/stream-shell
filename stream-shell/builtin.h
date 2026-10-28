@@ -10,34 +10,37 @@
 #include "builtins/get.h"
 #include "builtins/now.h"
 #include "builtins/observe.h"
+#include "stream-shell/command.h"
 #include "stream-shell/stream_transform.h"
 
 using namespace std::string_view_literals;
 
-inline std::optional<Stream> runBuiltin(std::string_view cmd,
-                                        const google::protobuf::Struct &config,
-                                        Stream input,
-                                        Env &env) {
+inline std::unique_ptr<Command> buildBuiltin(Env &env,
+                                             std::string_view cmd,
+                                             google::protobuf::Struct &config,
+                                             std::unique_ptr<Command> &upstream) {
   if (cmd == "args"sv) {
-    return args(config);
+    return std::make_unique<StreamConstantCommand>(args(config));
 
   } else if (cmd == "add"sv) {
-    return std::move(input) | for_each([=](auto val) { return add(std::move(val), config); });
+    return std::make_unique<ClosureCommand>(
+        env, std::move(upstream), [=](auto val) { return add(std::move(val), config); });
 
   } else if (cmd == "echo"sv) {
-    return echo(config);
+    return std::make_unique<StreamConstantCommand>(echo(config));
 
   } else if (cmd == "get"sv) {
-    return std::move(input) | for_each([=](auto val) { return get(std::move(val), config); });
+    return std::make_unique<ClosureCommand>(
+        env, std::move(upstream), [=](auto val) { return get(std::move(val), config); });
 
   } else if (cmd == "now"sv) {
-    return now(env);
+    return std::make_unique<StreamConstantCommand>(now(env));
 
   } else if (cmd == "observe"sv) {
-    return observe(env, config);
+    return std::make_unique<StreamConstantCommand>(observe(env, config));
 
   } else if (cmd == "exit"sv) {
-    return ranges::views::generate([]() -> Value { std::exit(0); });
+    return std::make_unique<StreamConstantCommand>(env.exit());
   }
   return {};
 }
