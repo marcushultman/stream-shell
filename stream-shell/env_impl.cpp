@@ -9,18 +9,18 @@ EnvImpl::EnvImpl() {
   } else if (auto *home_dir = getenv("HOME")) {
     load(std::string(home_dir) + "/.config");
   }
-  setEnv({"STSH_VERSION"}, [](auto) {
+  setEnv({"STSH_VERSION"}, [] {
     auto value = google::protobuf::Value();
     value.set_string_value(STSH_VERSION);
     return ranges::yield(value);
   });
 }
 
-StreamFactory EnvImpl::getEnv(StreamRef ref) const {
+EnvStream EnvImpl::getEnv(StreamRef ref) const {
   if (auto it = _cache.find(ref); it != _cache.end()) {
     return it->second.stream;
   } else if (auto str = std::getenv(ref.name.c_str())) {
-    return _cache[ref].stream = [sv = std::string_view(str)](auto) {
+    return _cache[ref].stream = [sv = std::string_view(str)] {
       return sv | ranges::views::split(':') | ranges::views::transform([](auto chunk) {
                google::protobuf::Value value;
                value.set_string_value(chunk | ranges::to<std::string>);
@@ -30,10 +30,10 @@ StreamFactory EnvImpl::getEnv(StreamRef ref) const {
   }
   return {};
 }
-void EnvImpl::setEnv(StreamRef ref, StreamFactory stream) {
+void EnvImpl::setEnv(StreamRef ref, EnvStream stream) {
   if (ref.name == "PWD") {
     std::optional<std::string> pwd;
-    ranges::for_each(stream({}), [&](auto result) {
+    ranges::for_each(stream(), [&](auto result) {
       if (auto value = result ? std::get_if<google::protobuf::Value>(&*result) : nullptr;
           value && value->has_string_value()) {
         pwd = std::move(*value->mutable_string_value());
@@ -77,6 +77,10 @@ ssize_t EnvImpl::read(int fd, google::protobuf::BytesValue &bytes) {
   return !_stop ? ret : -1;
 }
 
+Stream EnvImpl::exit() {
+  return ranges::views::generate([&]() -> Value { std::exit(0); });
+}
+
 void EnvImpl::interrupt() {
   std::unique_lock lock(_mutex);
   _stop = true;
@@ -91,6 +95,6 @@ void EnvImpl::load(std::string path) {
   _config = (std::stringstream() << config.rdbuf()).view() | ranges::views::split('\n') |
             ranges::views::filter(ranges::distance) | ranges::to<std::vector<std::string>>;
   for (auto &line : _config) {
-    (void)_parser->parse(tokenize(line));
+    std::ignore = _parser->parse(tokenize(line));
   }
 }

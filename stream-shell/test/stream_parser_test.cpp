@@ -105,9 +105,11 @@ BOOST_AUTO_TEST_CASE(numbers) {
 }
 
 BOOST_AUTO_TEST_CASE(strings) {
+  BOOST_TEST(parse("foo + bar") == makeValues("foobar"sv), each);
   BOOST_TEST(parse("'foo' + 'bar'") == makeValues("foobar"sv), each);
   BOOST_TEST(parse("\"foo\" + \"bar\"") == makeValues("foobar"sv), each);
   BOOST_TEST(parse("`foo` + `bar`") == makeValues("foobar"sv), each);
+  BOOST_TEST(parse("f + 'o' + \"o\" + `bar`") == makeValues("foobar"sv), each);
   // todo: fix double negation
   // BOOST_TEST(parse("!!`foo` !`foo`") == makeValues(true, false), each);
   // todo: stop using json for string interpolation
@@ -119,6 +121,8 @@ BOOST_AUTO_TEST_CASE(options) {
   BOOST_TEST(parse("--foo") == makeValues(JSON("{ foo: true }")), each);
   BOOST_TEST(parse("--no-foo") == makeValues(JSON("{ foo: false }")), each);
   BOOST_TEST(parse("--foo=bar") == makeValues(JSON("{ foo: [\"bar\"] }")), each);
+  BOOST_TEST(parse("--foo --bar") == makeValues(JSON("{ foo: true }"), JSON("{ bar: true }")),
+             each);
 }
 
 BOOST_AUTO_TEST_CASE(parentheses) {
@@ -153,8 +157,8 @@ BOOST_AUTO_TEST_CASE(closure) {
 }
 
 BOOST_AUTO_TEST_CASE(builtins) {
-  // todo: fake exit
-  // BOOST_TEST(parse("exit") == makeValues(2, 3), each);
+  BOOST_TEST(parse("exit").empty());
+  BOOST_TEST(env.exited);
 }
 
 BOOST_AUTO_TEST_CASE(closure_regression) {

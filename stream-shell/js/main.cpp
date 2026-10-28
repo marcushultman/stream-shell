@@ -1,20 +1,25 @@
 #include <emscripten.h>
 #include <emscripten/val.h>
+#include "stream-shell/readline.h"
 #include "stream-shell/repl.h"
 
-std::string buffer;
+struct ReadlinePromptJSImpl : public ReadlinePrompt {
+  std::optional<Result> prompt(Prompt prompt, Triggers triggers) override {
+    auto prompts = (prompt | ranges::views::take(1) | ranges::to<std::vector>);
+    auto prompt0 = prompts.empty() ? "" : prompts.front();
 
-const char *readline(const char *prompt) {
-  buffer = prompt;
-  auto result = emscripten::val::global().call<emscripten::val>("readline", buffer).await();
-  if (result.isNull()) {
-    return nullptr;
+    auto result = emscripten::val::global().call<emscripten::val>("readline", prompt0).await();
+
+    if (result.isNull()) {
+      return {};
+    }
+    return Result{.value = result.as<std::string>()};
   }
-  buffer = result.as<std::string>();
-  return buffer.c_str();
-}
+
+  void interrupt() override {}
+};
 
 int main(int argc, char **argv) {
-  for (;;) repl(readline);
-  return 0;
+  ReadlinePromptJSImpl readline;
+  return repl(readline), 0;
 }

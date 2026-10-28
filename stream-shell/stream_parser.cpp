@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <utmp.h>
 #include "builtin.h"
+#include "command.h"
 #include "config.h"
 #include "lift.h"
 #include "operand.h"
@@ -38,6 +39,8 @@ inline auto lookupType(std::string_view name) {
 
 #endif
 
+#if !__EMSCRIPTEN__
+
 inline auto exec(std::string cmd, std::vector<std::string> args) {
   if (cmd.starts_with('^')) {
     cmd.erase(cmd.begin());
@@ -50,8 +53,10 @@ inline auto exec(std::string cmd, std::vector<std::string> args) {
   return execvp(cmd.data(), argv.data());
 }
 
+#endif
+
 auto errorStream(Error err) -> Stream {
-  return ranges::views::single(std::unexpected(err));
+  return ranges::yield(std::unexpected(err));
 }
 
 enum class InputMode {
@@ -67,62 +72,261 @@ struct ValueVisitor {
   Result<T> operator()(const auto &) { return std::unexpected(Error::kParseError); }
 };
 
+/**
+ * A Command implementation always emitting an empty Stream.
+ */
+struct EmptyStreamCommand final : StreamConstantCommand {
+  EmptyStreamCommand() : StreamConstantCommand({}) {}
+};
+
+/**
+ * A Command implementation always emits a Stream with a single Error.
+ */
+struct ErrorStreamCommand final : StreamConstantCommand {
+  ErrorStreamCommand(Error error) : StreamConstantCommand(ranges::yield(std::unexpected(error))) {}
+};
+
+/**
+ * A Command implementation projecting an output Stream from a vector of Operands.
+ */
+struct StreamLiteralCommand final : StreamConstantCommand {
+  StreamLiteralCommand(Env &env, Scope &scope, std::vector<Operand> operands)
+      : StreamConstantCommand(ranges::yield(operands) | ranges::views::join |
+                              ranges::views::for_each(ToStream(env, scope))) {}
+};
+
+#if !__EMSCRIPTEN__
+
+/**
+ * A Command implementation that forks and exec an executable.
+ */
+struct ExecutableCommand final : Command {
+  ExecutableCommand(Env &env,
+                    std::string cmd,
+                    google::protobuf::Struct config,
+                    std::unique_ptr<Command> upstream)
+      : _env{env},
+        _cmd{std::move(cmd)},
+        _config{std::move(config)},
+        _upstream{std::move(upstream)} {}
+
+  Stream process(Stream in) override {
+    std::array<int, 2> in_pipe, out_pipe, err_pipe;
+
+    if (pipe(in_pipe.data()) != 0 || pipe(out_pipe.data()) != 0 || pipe(err_pipe.data()) != 0) {
+      return errorStream(Error::kExecPipeError);
+    }
+
+    if (_upstream) {
+      return unsink(_env,
+                    exec(_upstream->process(in, in_pipe[1], err_pipe[1]),
+                         in_pipe[0],
+                         out_pipe[1],
+                         err_pipe[1]),
+                    out_pipe[0],
+                    err_pipe[0]);
+
+    } else {
+      return unsink(_env,
+                    exec(sink(in, in_pipe[1], err_pipe[1]), in_pipe[0], out_pipe[1], err_pipe[1]),
+                    out_pipe[0],
+                    err_pipe[0]);
+    }
+  }
+
+  Stream process(int in, int err) override {
+    if (_upstream) {
+      std::array<int, 2> in_pipe, out_pipe;
+
+      if (pipe(in_pipe.data()) != 0 || pipe(out_pipe.data()) != 0) {
+        return errorStream(Error::kExecPipeError);
+      }
+
+      return unsink(_env,
+                    exec(_upstream->process(in, in_pipe[1], err), in_pipe[0], out_pipe[1], err),
+                    out_pipe[0],
+                    err);
+
+    } else {
+      std::array<int, 2> out_pipe;
+
+      if (pipe(out_pipe.data()) != 0) {
+        return errorStream(Error::kExecPipeError);
+      }
+
+      return unsink(_env, exec({}, in, out_pipe[1], err), out_pipe[0], err);
+    }
+  }
+
+  std::unique_ptr<Process> process(Stream in, int out, int err) override {
+    std::array<int, 2> in_pipe;
+
+    if (pipe(in_pipe.data()) != 0) {
+      return sink(errorStream(Error::kExecPipeError), out, err);
+    }
+
+    if (_upstream) {
+      return exec(_upstream->process(in, in_pipe[1], err), in_pipe[0], out, err);
+
+    } else {
+      return exec(sink(in, in_pipe[1], err), in_pipe[0], out, err);
+    }
+  }
+
+  std::unique_ptr<Process> process(int in, int out, int err) override {
+    if (_upstream) {
+      std::array<int, 2> in_pipe;
+
+      if (pipe(in_pipe.data()) != 0) {
+        return sink(errorStream(Error::kExecPipeError), out, err);
+      }
+
+      return exec(_upstream->process(in, in_pipe[1], err), in_pipe[0], out, err);
+
+    } else {
+      return exec({}, in, out, err);
+    }
+  }
+
+ private:
+  std::unique_ptr<Process> exec(std::unique_ptr<Process> upstream_process,
+                                int child_read,
+                                int child_write,
+                                int child_err) {
+    struct ProcessImpl : Process {
+      ProcessImpl(std::string cmd,
+                  google::protobuf::Struct config,
+                  std::unique_ptr<Process> upstream_process,
+                  int child_read,
+                  int child_write,
+                  int child_err)
+          : _cmd{std::move(cmd)},
+            _config{std::move(config)},
+            _upstream_process{std::move(upstream_process)},
+            _child_read{child_read},
+            _child_write{child_write},
+            _child_err{child_err} {}
+
+      void run() override {
+        if (_upstream_process) {
+          _upstream_process->run();
+        }
+
+        if (!_pid) {
+          if (auto pid = fork(); pid == 0) {
+            dup2(_child_read, STDIN_FILENO);
+            dup2(_child_write, STDOUT_FILENO);
+            dup2(_child_err, STDERR_FILENO);
+
+            ::exec(_cmd, toArgs(_config));
+            _exit(1);
+
+          } else {
+            _pid = pid;
+          }
+        }
+      }
+      bool wait() override {
+        return _pid
+            .transform([&](auto pid) {
+              int status = 0;
+              waitpid(*_pid, &status, 0);
+              return status == 0;
+            })
+            .value_or(true);
+      }
+
+     private:
+      std::string _cmd;
+      google::protobuf::Struct _config;
+      const std::unique_ptr<Process> _upstream_process;
+      const int _child_read;
+      const int _child_write;
+      const int _child_err;
+
+      std::optional<int> _pid;
+    };
+
+    return std::make_unique<ProcessImpl>(
+        _cmd, _config, std::move(upstream_process), child_read, child_write, child_err);
+  }
+
+  Env &_env;
+  std::string _cmd;
+  google::protobuf::Struct _config;
+  std::unique_ptr<Command> _upstream;
+};
+
+#endif
+
 struct CommandBuilder {
   Scope scope;
 
-  StreamFactory upstream;
+  std::unique_ptr<Command> upstream;
   std::vector<Operand> operands;
+  std::shared_ptr<Value> closure_var;
 
-  StreamFactory closure;
+  Closure closure;
 
   // todo: mutex with closure?
   std::string record_literal;
 
-  StreamFactory factory(Env &env) && {
+  [[nodiscard]] auto build(Env &env) && -> std::unique_ptr<Command> {
     if (closure) {
       assert(upstream);
-      return [upstream = std::move(upstream), closure = std::move(closure)](Stream input) {
-        return upstream(std::move(input)) | ranges::views::for_each([=](Result<Value> result) {
-                 return result ? closure(ranges::yield(*result)) : ranges::yield(result);
-               });
-      };
+      assert(operands.empty());
+      return std::make_unique<ClosureCommand>(env, std::move(upstream), std::move(closure));
     }
-    return [&env,
-            upstream = std::move(upstream),
-            scope = std::move(scope),
-            operands = std::move(operands)](Stream input) -> Stream {
-      return ranges::yield(upstream ? upstream(std::move(input)) : std::move(input)) |
-             ranges::views::for_each([&env, scope, operands](Stream input) -> Stream {
-               if (operands.empty()) {
-                 return {};
-               }
 
-               if (auto cmd = frontCommand(scope, operands[0])) {
-                 if (auto config = toConfig(env, std::span{operands}.subspan(1)); !config) {
-                   return ranges::yield(std::unexpected(config.error()));
+    if (operands.empty()) {
+      return std::make_unique<EmptyStreamCommand>();
+    }
 
-                 } else if (auto stream = runBuiltin(*cmd, *config, input, env)) {
-                   return *stream;
+    if (auto cmd = frontCommand(scope, operands[0])) {
+      if (auto config = toConfig(env, std::span{operands}.subspan(1)); !config) {
+        return std::make_unique<ErrorStreamCommand>(config.error());
 
-                 } else if (isExecutableInPath(*cmd)) {
-                   return runChildProcess(*cmd, *config, input, env);
-                 }
-               }
+      } else if (auto command = buildBuiltin(env, *cmd, *config, upstream)) {
+        return command;
 
-               // Stream expression (ignoring input)
-               return operands | ranges::views::for_each(ToStream(env, scope));
-             });
+#if !__EMSCRIPTEN__
+      } else if (isExecutableInPath(*cmd)) {
+        return std::make_unique<ExecutableCommand>(env, *cmd, *config, std::move(upstream));
+#endif
+      }
+    }
+
+    return std::make_unique<StreamLiteralCommand>(env, scope, std::move(operands));
+  }
+
+  auto buildShared(Env &env) -> std::shared_ptr<Command> { return std::move(*this).build(env); }
+
+  Closure buildClosure(Env &env) && {
+    return [cmd = std::move(*this).buildShared(env)](auto value) {
+      return cmd->process(ranges::yield(value));
     };
   }
 
-  Stream build(Env &env) && { return std::move(*this).factory(env)(Stream()); }
+  EnvStream buildEnv(Env &env) && {
+    return [cmd = std::move(*this).buildShared(env)] { return cmd->process(Stream{}); };
+  }
+
   Operand operand(Env &env) && {
     if (operands.size() == 1) {
       if (auto operand = std::visit(ValueVisitor<Operand>(), operands[0])) {
         return *operand;
       }
     }
-    return std::move(*this).build(env);
+    return std::move(*this).build(env)->process(Stream{});
+  }
+
+  [[nodiscard]] std::unique_ptr<Process> run(Env &env,
+                                             int in = STDIN_FILENO,
+                                             int out = STDOUT_FILENO,
+                                             int err = STDERR_FILENO) && {
+    auto process = std::move(*this).build(env)->process(in, out, err);
+    process->run();
+    return process;
   }
 
  private:
@@ -131,77 +335,6 @@ struct CommandBuilder {
       return scope.vars.contains(*word) ? nullptr : word;
     }
     return nullptr;
-  }
-
-  static Stream runChildProcess(std::string_view cmd,
-                                const google::protobuf::Struct &config,
-                                Stream input,
-                                Env &env) {
-#if !__EMSCRIPTEN__
-
-    auto pty_fd = posix_openpt(O_RDWR | O_NOCTTY);
-    if (pty_fd < 0 || grantpt(pty_fd) < 0 || unlockpt(pty_fd) < 0) {
-      return ranges::yield(std::unexpected(Error::kExecPipeError));
-    }
-
-    const char *tty_name = ptsname(pty_fd);
-    if (!tty_name) {
-      close(pty_fd);
-      return ranges::yield(std::unexpected(Error::kExecPipeError));
-    }
-
-    if (auto pid = fork(); pid == 0) {
-      // Child process
-      int tty_fd = open(tty_name, O_RDWR);
-      if (tty_fd < 0) _exit(1);
-
-      if (setsid() == -1 || ioctl(tty_fd, TIOCSCTTY, 0) == -1 ||
-          tcsetpgrp(tty_fd, getpid()) == -1) {
-        close(tty_fd);
-        _exit(1);
-      }
-
-      dup2(tty_fd, STDIN_FILENO);
-      dup2(tty_fd, STDOUT_FILENO);
-      dup2(tty_fd, STDERR_FILENO);
-
-      close(pty_fd);
-      close(tty_fd);
-
-      exec(std::string(cmd), toArgs(config));
-      _exit(1);
-
-    } else if (pid > 0) {
-      tcsetpgrp(pty_fd, pid);
-
-      // Parent process
-      return ranges::views::generate(
-                 [&env, pty_fd, pid, bytes = google::protobuf::BytesValue()] mutable
-                 -> std::optional<Result<Value>> {
-                   if (auto n = env.read(pty_fd, bytes); n == 0) {
-                     close(pty_fd);
-
-                     int status = 0;
-                     waitpid(pid, &status, 0);
-                     tcsetpgrp(STDIN_FILENO, getpgrp());
-
-                     if (status != 0) {
-                       return std::unexpected(Error::kExecNonZeroStatus);
-                     }
-                     return std::nullopt;
-                   } else if (n < 0) {
-                     return std::unexpected(Error::kExecReadError);
-                   } else {
-                     return bytes;
-                   }
-                 }) |
-             ranges::views::take_while([](const auto &value) { return value.has_value(); }) |
-             ranges::views::transform([](auto &&value) { return std::move(*value); });
-    }
-    return ranges::yield(std::unexpected(Error::kExecForkError));
-#else
-    return ranges::yield(std::unexpected(Error::kExecError));
-#endif
   }
 
   static bool isExecutable(const std::filesystem::path &p) {
@@ -356,10 +489,12 @@ auto appendRecordLiteral(Env &env, CommandBuilder &cmd, Token token) -> Result<v
 struct StreamParserImpl final : StreamParser {
   StreamParserImpl(Env &env) : env{env} {}
 
-  auto parse(ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>>)
-      -> Stream override;
+  auto parse(Tokens) -> Stream override;
+  auto parseInteractive(Tokens) -> void override;
 
  private:
+  auto parse(Tokens, bool is_interactive) -> Stream;
+
   using OpPred = std::function<bool(Token)>;
 
   auto toOperand(ranges::bidirectional_range auto token) -> std::optional<Operand>;
@@ -371,9 +506,7 @@ struct StreamParserImpl final : StreamParser {
   std::stack<Token> ops;
 };
 
-auto StreamParserImpl::parse(
-    ranges::any_view<ranges::any_view<const char, ranges::category::bidirectional>> tokens)
-    -> Stream {
+auto StreamParserImpl::parse(Tokens tokens, bool is_interactive) -> Stream {
   // reset state
   cmds = {};
   ops = {};
@@ -442,7 +575,7 @@ auto StreamParserImpl::parse(
         rhs.record_literal += "{";
       }
 
-    } else if (token == "}") {
+    } else if (token == "}" && cmds.top().record_literal.empty()) {
       if (auto res = performOp([&](const auto &op) { return op != "{"; }); !res.has_value()) {
         return errorStream(res.error());
       }
@@ -450,20 +583,13 @@ auto StreamParserImpl::parse(
       auto rhs = std::move(cmds.top());
       cmds.pop();
 
-      if (rhs.record_literal.empty()) {
-        cmds.top().closure = std::move(rhs).factory(env);
-
+      if (auto closure_var = rhs.closure_var) {
+        cmds.top().closure = [closure_var, rhs = std::move(rhs).buildShared(env)](auto value) {
+          *closure_var = value;
+          return rhs->process(Stream{});
+        };
       } else {
-        if (auto res = appendRecordLiteral(env, rhs, "}"sv); !res.has_value()) {
-          return errorStream(res.error());
-        }
-        auto value = google::protobuf::Value();
-        if (!google::protobuf::json::JsonStringToMessage(rhs.record_literal,
-                                                         value.mutable_struct_value())
-                 .ok()) {
-          return errorStream(Error::kJsonError);
-        }
-        cmds.top().operands.push_back(std::move(value));
+        cmds.top().closure = std::move(rhs).buildClosure(env);
       }
 
       // todo: generalize open ternary
@@ -481,15 +607,7 @@ auto StreamParserImpl::parse(
       if (!var_name || lhs.upstream) {
         return errorStream(Error::kInvalidClosureSignature);
       }
-      lhs.upstream = [var = lhs.scope.add(*var_name)](Stream input) -> Stream {
-        auto results = input | ranges::views::take(1) | ranges::to<std::vector>;
-        if (results.empty() || !results.front()) {
-          return results.empty() ? errorStream(Error::kInvalidClosureSignature)
-                                 : ranges::yield(results.front());
-        }
-        *var = results.front().value();
-        return {};
-      };
+      lhs.closure_var = lhs.scope.add(*var_name);
       lhs.operands.clear();
 
     } else if (auto value = toOperand(token)) {
@@ -501,6 +619,18 @@ auto StreamParserImpl::parse(
           });
           !res) {
         return errorStream(res.error());
+      }
+
+      if (token == "}") {
+        auto value = google::protobuf::Value();
+        if (!google::protobuf::json::JsonStringToMessage(cmds.top().record_literal,
+                                                         value.mutable_struct_value())
+                 .ok()) {
+          return errorStream(Error::kJsonError);
+        }
+        ops.pop();
+        cmds.pop();
+        cmds.top().operands.push_back(std::move(value));
       }
 
     } else {
@@ -516,7 +646,22 @@ auto StreamParserImpl::parse(
   if (cmds.size() != 1) {
     return errorStream(Error::kParseError);
   }
-  return std::move(cmds.top()).build(env);
+
+  if (is_interactive) {
+    if (auto process = std::move(cmds.top()).run(env); !process->wait()) {
+      return errorStream(Error::kExecNonZeroStatus);
+    }
+    return Stream();
+  } else {
+    return std::move(cmds.top()).build(env)->process(Stream());
+  }
+}
+
+auto StreamParserImpl::parse(Tokens tokens) -> Stream {
+  return parse(std::move(tokens), false);
+}
+auto StreamParserImpl::parseInteractive(Tokens tokens) -> void {
+  parse(std::move(tokens), true);
 }
 
 auto StreamParserImpl::toOperand(ranges::bidirectional_range auto token) -> std::optional<Operand> {
@@ -599,7 +744,7 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
     cmds.pop();
 
     if (auto *ref = isStreamRefAssignment(lhs, ops.top())) {
-      env.setEnv(*ref, std::move(rhs).factory(env));
+      env.setEnv(*ref, std::move(rhs).buildEnv(env));
       lhs.operands.clear();
       cmds.push(std::move(lhs));
 
@@ -608,7 +753,7 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
         lhs.operands.erase(lhs.operands.begin());
         rhs.operands.resize(1);
       }
-      lhs.scope.env_overrides[*var] = std::move(rhs).factory(env);
+      lhs.scope.env_overrides[*var] = std::move(rhs).buildEnv(env);
       cmds.push(std::move(lhs));
 
     } else if (unaryLeftOp(lhs.operands.empty(), ops.top())) {
@@ -655,11 +800,11 @@ auto StreamParserImpl::performOp(const OpPred &pred) -> Result<void> {
       cmds.push(std::move(llhs));
 
     } else if (ops.top() == ";") {
-      ranges::for_each(std::move(lhs).build(env), [](auto &&) {});
+      ranges::for_each(std::move(lhs).buildEnv(env)(), [](auto &&) {});
       cmds.push(std::move(rhs));
 
     } else if (ops.top() == "|") {
-      rhs.upstream = std::move(lhs).factory(env);
+      rhs.upstream = std::move(lhs).build(env);
       cmds.push(std::move(rhs));
 
     } else {

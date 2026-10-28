@@ -8,6 +8,7 @@
 #include <google/protobuf/util/json_util.h>
 #include <range/v3/all.hpp>
 #include <unistd.h>
+#include "readline.h"
 #include "to_string.h"
 
 namespace {
@@ -28,6 +29,8 @@ struct Printer : Consumer {
 
   ToString::Value _to_str;
 };
+
+#if 0
 
 struct SlicePrinter final : Printer {
   explicit SlicePrinter(size_t window) : _window{window} {}
@@ -58,15 +61,59 @@ struct SlicePrinter final : Printer {
   int _lines_printed = 0;
 };
 
+#endif
+
 struct REPLPrinter final : Printer {
   REPLPrinter(ReadlinePrompt &prompt) : _prompt{prompt} {}
 
   bool print(size_t i, std::string_view value) override {
-    std::cout << value << std::endl;
-    return _prompt.prompt("Next [Enter]").get().has_value();
+    setBuffer(value);
+
+    for (;;) {
+      printBuffer();
+
+      if (auto result = _prompt.prompt({}, {'\t'})) {
+        if (result->trigger == '\t') {
+          toggleMode();
+          rollback();
+          continue;
+        }
+        return true;
+      } else {
+        std::cout << std::endl;
+        return false;
+      }
+    }
+  }
+
+  void setBuffer(std::string_view value) {
+    _buffer = value;
+    _lines_printed = ranges::count(value, '\n');
+  }
+
+  void rollback() {
+    std::cout << "\033[G\033[K";
+    ranges::for_each(ranges::views::iota(0, _lines_printed),
+                     [](auto) { std::cout << "\033[A\033[K"; });
+  }
+
+  void printBuffer() {
+    switch (0) {
+      case 0:
+        std::cout << _buffer << std::flush;
+        break;
+      default:
+        assert(0);
+    }
+  }
+
+  void toggleMode() {
+    // todo
   }
 
   ReadlinePrompt &_prompt;
+  std::string _buffer;
+  int _lines_printed = 0;
 };
 
 }  // namespace

@@ -26,14 +26,15 @@ inline void repl(ReadlinePrompt &readline) {
   });
 
   for (;;) {
-    auto future = readline.prompt("stream-shell v0.1 🚀> ");
-
-    // todo: refresh prompt
-
-    if (auto line = future.get()) {
-      printStream(parser->parse(tokenize(*line)), readline);
+    if (auto res = readline.prompt(ranges::yield("stream-shell v0.1 🚀> "), {'\t'})) {
+      if (res->trigger == '\t') {
+        std::cout << std::endl;
+        parser->parseInteractive(tokenize(res->value));
+      } else {
+        printStream(parser->parse(tokenize(res->value)), readline);
+      }
     } else {
-      break;
+      std::cout << std::endl;
     }
   }
 }
