@@ -1,6 +1,7 @@
 import { Terminal } from "https://esm.sh/@xterm/xterm";
 import { FitAddon } from "https://esm.sh/@xterm/addon-fit";
-import { Readline } from "https://esm.sh/xterm-readline"
+// import { Readline } from "https://esm.sh/xterm-readline"
+import { Readline } from "./xterm-readline.browser.js";
 import Module from "./wasm-cc.js";
 
 const term = new Terminal({
@@ -24,24 +25,14 @@ fitAddon.fit();
 
 term.writeln(`{{welcome_message}}`);
 
-let ctrlCHandler = () => {};
+let abortController = new AbortController();
 
-window.readline = (prompt) => Promise.race([
-  rl.read(prompt),
-  new Promise(resolve => (ctrlCHandler = () => resolve(null))),
-]);
+rl.setCtrlCHandler(() => abortController.abort());
 
-// keydown does not work for this...
-document.onkeyup = (e) => {
-  if (e.key.toLowerCase() === 'c' && e.ctrlKey) {
-    ctrlCHandler();
-  }
-};
-document.onkeydown = (e) => {
-  e.key.toLowerCase() === 'k' && e.metaKey && term.clear();
-};
+window.readline = (prompt) => {
+  abortController = new AbortController();
+  return rl.read(prompt, { signal: abortController.signal }).catch(() => null);
+}
 
-await Module({
-  stdout: (e) => term.write(new Uint8Array([e])),
-  stderr: (e) => term.write(new Uint8Array([e])),
-});
+const io = (e) => term.write(new Uint8Array([e]));
+await Module({ stdout: io, stderr: io });
