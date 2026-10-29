@@ -11,6 +11,7 @@ cp "$script_dir/../../bazel-bin/stream-shell/js/js/wasm-cc.js" "$script_dir/dev/
 cp "$script_dir/../../bazel-bin/stream-shell/js/js/wasm-cc.wasm" "$script_dir/dev/"
 cp "$script_dir/index.html" "$script_dir/dev/"
 cp "$script_dir/main.css" "$script_dir/dev/"
+cp "$script_dir/xterm-readline.browser.js" "$script_dir/dev/"
 sed "s|{{welcome_message}}|stream-shell $GIT_REF ($GIT_SHA - $DATE)|" "$script_dir/main.js" > "$script_dir/dev/main.js"
 
 chmod -x+w "$script_dir/dev/wasm-cc.js"
