@@ -46,7 +46,8 @@ cc_library(
     "@range-v3//:range-v3",
   ],
   defines = [
-    'STSH_VERSION=\\"0.1.0\\"'
+    'STSH_VERSION=\\"0.1.0\\"',
+    'META_NO_STD_FORWARD_DECLARATIONS',  # range-v3
   ],
   visibility = ["//stream-shell:__subpackages__"],
 )
