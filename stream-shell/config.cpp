@@ -15,42 +15,70 @@ namespace {
 
 struct Buffer {
   google::protobuf::Struct json;
-  std::deque<google::protobuf::Any> record = {google::protobuf::Any()};
+  struct Entry {
+    std::string subcommand;
+    google::protobuf::Any record;
+  };
+  std::vector<Entry> entries = {Entry{}};
 
   google::protobuf::Struct *merge_target = &json;
-  google::protobuf::ListValue *positionals = (*json.mutable_fields())["@"].mutable_list_value();
+  bool positional_only = false;
+
+  void append(const google::protobuf::Value &value) {
+    *(*merge_target->mutable_fields())["@"].mutable_list_value()->add_values() = value;
+  }
 };
 
 bool merge(Env &, Buffer &buffer, const google::protobuf::BytesValue &bytes) {
-  auto *arg = buffer.positionals->add_values()->mutable_string_value();
-  return google::protobuf::json::MessageToJsonString(bytes, arg).ok();
+  google::protobuf::Value value;
+  if (!google::protobuf::json::MessageToJsonString(bytes, value.mutable_string_value()).ok()) {
+    return false;
+  }
+  buffer.append(value);
+  return true;
 }
 
 bool merge(Env &, Buffer &buffer, const google::protobuf::Value &val) {
-  if (val.has_struct_value()) {
+  if (buffer.positional_only) {
+    buffer.append(val);
+
+  } else if (val.has_string_value()) {
+    if (val.string_value() == "--") {
+      buffer.positional_only = true;
+      buffer.append(val);
+    } else {
+      buffer.entries.push_back({val.string_value(), {}});
+      buffer.merge_target =
+          (*buffer.merge_target->mutable_fields())[val.string_value()].mutable_struct_value();
+    }
+
+  } else if (val.has_struct_value()) {
     buffer.merge_target->MergeFrom(val.struct_value());
 
   } else {
-    *buffer.positionals->add_values() = val;
-    buffer.record.emplace_back();
-    std::string subcommand;
-    if (!google::protobuf::json::MessageToJsonString(val, &subcommand).ok()) {
-      return false;
-    }
-    buffer.merge_target =
-        (*buffer.merge_target->mutable_fields())[subcommand].mutable_struct_value();
+    buffer.append(val);
   }
   return true;
 }
 
 bool merge(Env &, Buffer &buffer, const google::protobuf::Any &any) {
-  if (buffer.record.back().type_url().empty()) {
-    buffer.record.back().set_type_url(any.type_url());
+  if (buffer.positional_only) {
+    std::string json;
+    google::protobuf::Value value;
+    if (!google::protobuf::json::MessageToJsonString(any, &json).ok() ||
+        !google::protobuf::json::JsonStringToMessage(json, &value).ok()) {
+      return false;
+    }
+    buffer.append(value);
+    return true;
   }
-  if (buffer.record.back().type_url() != any.type_url()) {
+  if (buffer.entries.back().record.type_url().empty()) {
+    buffer.entries.back().record.set_type_url(any.type_url());
+  }
+  if (buffer.entries.back().record.type_url() != any.type_url()) {
     return false;
   }
-  buffer.record.back().mutable_value()->append_range(any.value());
+  buffer.entries.back().record.mutable_value()->append_range(any.value());
   return true;
 }
 
@@ -71,9 +99,10 @@ bool merge(Env &env, Buffer &buffer, const StreamRef &ref) {
   return f && merge(env, buffer, f());
 }
 
-auto to_string(auto value) {
+auto to_string(const auto &value) {
   std::string arg;
-  assert(google::protobuf::util::MessageToJsonString(value, &arg).ok());
+  const auto status = google::protobuf::util::MessageToJsonString(value, &arg);
+  assert(status.ok());
   return arg;
 }
 
@@ -88,22 +117,28 @@ Result<google::protobuf::Struct> toConfig(Env &env, std::span<const Operand> ope
     }
   }
 
-  for (buffer.merge_target = &buffer.json; const auto &[cmd, record] : ranges::views::zip(
-                                               buffer.positionals->values(), buffer.record)) {
-    std::string json;
-    if (!google::protobuf::json::MessageToJsonString(cmd, &json).ok()) {
-      return std::unexpected(Error::kConfigError);
-    }
-
-    buffer.merge_target = (*buffer.merge_target->mutable_fields())[json].mutable_struct_value();
-
+  auto merge_record = [&](const google::protobuf::Any &record) {
     if (!record.type_url().empty()) {
-      if (!google::protobuf::json::MessageToJsonString(record, &json).ok()) {
-        return std::unexpected(Error::kConfigError);
+      std::string json;
+      google::protobuf::Struct fields;
+      if (!google::protobuf::json::MessageToJsonString(record, &json).ok() ||
+          !google::protobuf::json::JsonStringToMessage(json, &fields).ok()) {
+        return false;
       }
-      if (!google::protobuf::json::JsonStringToMessage(json, &buffer.json).ok()) {
-        return std::unexpected(Error::kConfigError);
-      }
+      buffer.merge_target->MergeFrom(fields);
+    }
+    return true;
+  };
+
+  buffer.merge_target = &buffer.json;
+  if (!merge_record(buffer.entries.front().record)) {
+    return std::unexpected(Error::kConfigError);
+  }
+  for (const auto &[subcommand, record] : buffer.entries | ranges::views::drop(1)) {
+    buffer.merge_target =
+        (*buffer.merge_target->mutable_fields())[subcommand].mutable_struct_value();
+    if (!merge_record(record)) {
+      return std::unexpected(Error::kConfigError);
     }
   }
 
@@ -115,17 +150,32 @@ std::vector<std::string> toArgs(const google::protobuf::Struct &config) {
 
   std::vector<std::string> args;
 
-  for (auto &[key, value] : config.fields()) {
-    if (key == "@"sv && value.has_list_value()) {
-      for (auto &value : value.list_value().values()) {
-        args.push_back(to_string(value));
-      }
-    } else if (key.size() == 1 && value.bool_value()) {
-      args.push_back("-" + key);
-    } else if (value.bool_value()) {
-      args.push_back("--" + key);
+  // Options precede positionals so that a retained "--" cannot turn them
+  // into positional arguments. Descend into subcommands only after this level.
+  for (const auto &[key, value] : config.fields()) {
+    if ((key == "@"sv && value.has_list_value()) || value.has_struct_value()) {
+      continue;
+    }
+    if (value.has_bool_value() && value.bool_value()) {
+      args.push_back((key.size() == 1 ? "-" : "--") + key);
     } else {
-      args.push_back("--" + key + "=" + to_string(value));
+      args.push_back("--" + key + "=" +
+                     (value.has_string_value() ? value.string_value() : to_string(value)));
+    }
+  }
+
+  if (auto it = config.fields().find("@");
+      it != config.fields().end() && it->second.has_list_value()) {
+    for (const auto &value : it->second.list_value().values()) {
+      args.push_back(value.has_string_value() ? value.string_value() : to_string(value));
+    }
+  }
+
+  for (const auto &[key, value] : config.fields()) {
+    if (value.has_struct_value()) {
+      args.push_back(key);
+      auto nested = toArgs(value.struct_value());
+      args.insert(args.end(), nested.begin(), nested.end());
     }
   }
   return args;
