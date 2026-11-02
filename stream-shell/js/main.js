@@ -1,7 +1,6 @@
 import { Terminal } from "https://esm.sh/@xterm/xterm";
 import { FitAddon } from "https://esm.sh/@xterm/addon-fit";
-// import { Readline } from "https://esm.sh/xterm-readline"
-import { Readline } from "./xterm-readline.browser.js";
+import { Readline } from "https://esm.sh/xterm-readline@2.0.0";
 import Module from "./wasm-cc.js";
 
 const term = new Terminal({
