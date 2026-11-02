@@ -1,6 +1,6 @@
 # stream-shell
 
-Stream-shell (short name `stsh`), is a non-POSIX compliant shell, taking inspiration from shells that operates on structured data, such as Nushell, but stripping out unnecessary type abstractions and other stuff that just offers too many ways to do the same thing.
+Stream-shell (short name `stsh`), is a non-POSIX compliant shell, taking inspiration from shells that operates on structured data, but stripping out unnecessary type abstractions and other stuff that just offers too many ways to do the same thing.
 
 Everything in stream-shell are streams of values, including the environment and other variables. Streams are lazily consumed with back-pressure, supporting both finite and infinite sequences. They are transformed by commands, such as executable binaries, builtins, and closures (lambdas), and chained together using the `|`-operator. Streams makes working with large amounts of data a breeze, as they do not require all data to be loaded upfront before they can start interacting with it.
 
@@ -58,7 +58,7 @@ A stream expression is evaluated to a stream, and a value expression is evaluate
 > 1 + 2 3 "foo" + "bar" 10 % 3
 3
 3
-"foobar"
+foobar
 1
 ```
 
@@ -82,7 +82,8 @@ Parentheses can be used to isolate value expressions (can be seen as flattened s
 3
 ```
 
-Options & flags are shorthand for records.
+Options and flags are shorthand for records.
+
 ```
 > --foo --no-bar -ABC
 { foo: true }
@@ -111,7 +112,7 @@ A schema coerces subsequent operands to be instances of the defined type. Parent
 > (app.User {} --name=Cedric (--name=David --age=35) app.Circle {} { radius: 10 }) {}
 app.User { name: "" }
 app.User { name: "Cedric" }
-app.User { name: "Davic", age: 35 }
+app.User { name: "David", age: 35 }
 app.Circle { radius: 0 }
 app.Circle { radius: 10 }
 {}
@@ -123,7 +124,7 @@ Streams are transformed in stages chained together into a pipeline with the `|`-
 
 ### Command configuration (record)
 
-Like many other shells, if the first value in an expression identifies an executable binary or builtin function, the expression is interpreted as a command. The remaining values (command arguments) are all conceptually part of the same command configuration, and will be consumed and merged into a single record value upon execution. Record values uses protobuf merging strategy. Whenever a string value is encountered, a nested record is added using the value as key into which subsequent record-values are merged. Non-string primitives (or any values after encoutering `"--"`) will be placed in a list keyed by `"@"`. This way, trivial arguments are bi-directionally convertible.
+Like many other shells, if the first value in an expression identifies an executable binary or builtin function, the expression is interpreted as a command. The remaining values (command arguments) are all conceptually part of the same command configuration, and will be consumed and merged into a single record value upon execution. Record values uses protobuf merging strategy. Whenever a string value is encountered, a nested record is added using the value as key into which subsequent record-values are merged. Non-string primitives (or any values after encoutering `"--"`) will be placed in a list keyed by `"@"`, only added if non-empty. This way, trivial arguments are bi-directionally convertible.
 
 Example:
 ```
@@ -137,7 +138,7 @@ is parsed as
   "b": true,
   "subcommand": {
     "@": [42, "--", "foo"],
-    "c": "false",
+    "c": false,
     "long": 1234,
   }
 }
@@ -231,7 +232,7 @@ For more advanced ways of displaying values, hit [Tab] to cycle through differen
 
 ### IO-mode
 
-Executing an interactive command that reads from stdin to get user input and prints to stdout as feedback in Stream-shell will normally not work that well; no input is read and chunks of the output are pulled lazily. To work around this, Stream-shell ships with an IO-mode, where input and output is hooked up directly to the shell in- and output. This seamlessly works with pipelines and closures and can be activated by hitting [Tab] at the end of the prompt.
+Executing an interactive command that reads from stdin to get user input and prints to stdout as feedback will normally not work that well in Stream-shell; no input is read and chunks of the output are pulled lazily. To work around this, Stream-shell ships with an IO-mode, where input and output is hooked up directly to the shell in- and output. This seamlessly works with pipelines and closures and can be activated by hitting [Tab] at the end of the prompt.
 
 ## Variables & Environment
 
@@ -312,7 +313,7 @@ The configuration script for interactive stream-shell (`config.st`) is loaded fr
 
 ## Shell Prompt
 
-The `$PROMPT` environment variable can be set to customize the prompt of the shell. It uses the last emitted value to print the prompt.
+The `$PROMPT` environment variable can be set to customize the prompt of the shell. It uses the most recently emitted value to print the prompt, even during a prompt read.
 
 ### Oh My Posh
 
